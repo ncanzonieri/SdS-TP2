@@ -7,14 +7,14 @@ import java.util.Random;
 public class Main {
     public static void main(String[] args) throws IOException {
         int N = args.length > 0 ? Integer.parseInt(args[0]) : 10;
-        int width = 20;
-        int height = 20;
-        Grid grid = new Grid(N, width, height);
+        Grid grid = new Grid(N);
         Random random = new Random();
 
+        int side = grid.getL();
+
         while (grid.getParticles().size() < N) {
-            int x = random.nextInt(width);
-            int y = random.nextInt(height);
+            int x = random.nextInt(side);
+            int y = random.nextInt(side);
             grid.addRandomParticle(x, y);
         }
 
