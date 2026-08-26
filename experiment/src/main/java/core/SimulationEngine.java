@@ -6,6 +6,7 @@ import models.Grid;
 import models.Particle;
 import models.SimulationParams;
 import models.SimulationParams.Model;
+import utils.SimulationWriter;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -37,12 +38,24 @@ public class SimulationEngine {
     private final SimulationParams params;
     private final Random random;
     private final List<ObservableSample> observables = new ArrayList<>();
+    private final SimulationWriter writer;
     private int t = 0;
 
+    /** Corrida sin persistencia (solo observables en memoria). */
     public SimulationEngine(Grid grid, SimulationParams params) {
+        this(grid, params, null);
+    }
+
+    /**
+     * Corrida que ademas vuelca cada estado a disco via `writer`. Si `writer`
+     * es null no se escribe nada (util para el benchmark del CIM, que no
+     * necesita output, y para los tests).
+     */
+    public SimulationEngine(Grid grid, SimulationParams params, SimulationWriter writer) {
         this.grid = grid;
         this.params = params;
         this.random = grid.getRandom();
+        this.writer = writer;
     }
 
     public Grid getGrid() {
@@ -119,6 +132,11 @@ public class SimulationEngine {
         double va = OrderParameter.polarization(particles);
         double s = ClusterFinder.largestClusterFraction(neighbors, particles);
         observables.add(new ObservableSample(t, va, s));
+
+        if (writer != null) {
+            writer.writeFrame(t, particles);
+            writer.writeObservables(t, va, s);
+        }
     }
 
     /**
