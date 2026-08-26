@@ -9,7 +9,6 @@ public class Grid {
     private final double noise;
     private final static int L=10;
     private final static double R=1.0;
-    private final boolean isViscek;
     private final List<Particle> particles;
     private final Random random;
 
@@ -19,7 +18,6 @@ public class Grid {
         this.noise = params.getNoise();
         this.particles = new ArrayList<>();
         this.random = new Random(params.getSeed());
-        this.isViscek = params.getModel().equals(SimulationParams.Model.VICSEK);
     }
 
     public int getN() {
@@ -56,43 +54,6 @@ public class Grid {
         Particle particle = new Particle(particles.size() + 1, x, y, angle);
 
         particles.add(particle);
-    }
-
-    public double viscek(Particle particle, List<Particle> neighbors) {
-        return Stream.concat(Stream.of(particle),neighbors.stream())
-                .collect(Collectors.teeing(
-                        Collectors.summingDouble(p->Math.sin(p.getAngle())),
-                        Collectors.summingDouble(p->Math.cos(p.getAngle())),
-                        Math::atan2
-                ));
-    }
-
-    public double voting(Particle particle, List<Particle> neighbors) {
-        return neighbors.get(random.nextInt(neighbors.size())).getAngle();
-    }
-
-    /**
-     * Simula un tick de simulación, actualizando ángulos y posiciones de partículas y devolviendo el parámetro de orden en el nuevo instante
-     * @return
-     */
-    public double simulateTick() {
-        Map<Particle,List<Particle>> neighbors = nearestNeighbor();
-        for (Particle particle : particles) {
-            double theta = isViscek ?
-                    viscek(particle,neighbors.get(particle)) :
-                    voting(particle,neighbors.get(particle)) +
-                    random.nextDouble(-noise/2, noise/2);
-            double x = particle.getX()+10*Math.cos(theta);
-            double y = particle.getY() +10*Math.sin(theta);
-            particle.setAngle(theta);
-            particle.setX(x);
-            particle.setY(y);
-        }
-        return particles.stream().collect(Collectors.teeing(
-                Collectors.summingDouble(p->Math.cos(p.getAngle())),
-                Collectors.summingDouble(p->Math.sin(p.getAngle())),
-                Math::hypot
-        ))/N;
     }
 
     public Map<Particle,List<Particle>> nearestNeighbor() {
