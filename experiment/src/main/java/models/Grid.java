@@ -50,20 +50,25 @@ public class Grid {
         return random;
     }
 
-    /** Adds a random particle into cell (x, y). Several particles can share a cell. */
-    public boolean addRandomParticle(int x, int y) {
-        if (particles.size() >= N) {
-            return false;
+    /**
+     * Condiciones iniciales del modelo (Teorica_2, diapositiva 41): en t=0 las N
+     * particulas se distribuyen al azar en la celda, con direcciones theta
+     * tambien al azar. Las posiciones son continuas dentro de [0,L)^2 - el
+     * sistema es OFF-LATTICE, las particulas no estan atadas a una grilla.
+     *
+     * (Reemplaza al addRandomParticle(int,int) del TP1, que colocaba las
+     * particulas en coordenadas enteras: servia para el demo de vecinos de
+     * aquel TP, pero seria incorrecto como condicion inicial de Vicsek.)
+     */
+    public void initializeRandom() {
+        particles.clear();
+        for (int i = 0; i < N; i++) {
+            particles.add(new Particle(
+                    i,
+                    random.nextDouble() * L,
+                    random.nextDouble() * L,
+                    random.nextDouble() * 2 * Math.PI));
         }
-        if (x < 0 || x >= L || y < 0 || y >= L) {
-            return false;
-        }
-
-        double angle = random.nextDouble() * 2*Math.PI;
-        Particle particle = new Particle(particles.size() + 1, x, y, angle);
-
-        particles.add(particle);
-        return true;
     }
 
     // La regla de actualizacion (Vicsek/Votante), el ruido y el loop temporal
