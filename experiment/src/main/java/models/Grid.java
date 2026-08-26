@@ -6,7 +6,6 @@ import java.util.stream.Stream;
 
 public class Grid {
     private final int N;
-    private final double noise;
     private final static int L=10;
     private final static double R=1.0;
     private final List<Particle> particles;
@@ -15,7 +14,6 @@ public class Grid {
     @SuppressWarnings("unchecked")
     public Grid(SimulationParams params) {
         this.N = params.getN();
-        this.noise = params.getNoise();
         this.particles = new ArrayList<>();
         this.random = new Random(params.getSeed());
     }
