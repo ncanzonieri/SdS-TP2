@@ -14,8 +14,8 @@ Este archivo es el punto de entrada de contexto para Claude Code en este reposit
 El plan de implementación paso a paso vive en `PLAN_TP2.md` (raíz del repo) — es la guía para el equipo: cada paso se hace, se commitea, se pushea, y el siguiente en sentarse sigue desde ahí.
 
 - [x] **Paso 1 — Modelo de datos y parametrización.** `Grid`/`Particle` ya no tienen `L`/`R` hardcodeados; se agregó `SimulationParams` (agrupa N, L, rc, v, eta, T, seed, modelo) y se corrigió un bug de `equals`/`hashCode` en `Particle` y un bug latente del cálculo de celdas del CIM (asumía `M==L`, ahora `M=floor(L/rc)`). Detalle completo en `PLAN_TP2.md`.
-- [ ] Paso 2 — Motor de actualización (Vicsek + Votante, ruido, wrap-around) — **siguiente paso a implementar.**
-- [ ] Paso 3 — Observables por paso (`va`, clusters `S`)
+- [x] **Paso 2 — Motor de actualización (Vicsek + Votante, ruido, wrap-around).** Nueva clase `core/SimulationEngine.java` (`step()`/`run(T)`) reemplaza el prototipo `viscek()`/`simulateTick()` de `Grid` (eliminado): actualización síncrona vía buffer, ruido `U(-η/2,η/2)` en ambos modelos, posición con `v` real y wrap-around periódico. Verificado con smoke tests (orden con η=0, desorden con η alto, consenso del votante, wrap-around). `Main` todavía no invoca el engine — eso es Paso 5. Detalle completo en `PLAN_TP2.md`.
+- [ ] Paso 3 — Observables por paso (`va`, clusters `S`) — **siguiente paso a implementar.**
 - [ ] Paso 4 — Persistencia (archivos de salida)
 - [ ] Paso 5 — CLI / barrido de η
 - [ ] Paso 6 — Benchmark del CIM + limpieza final
@@ -41,6 +41,7 @@ SdS-TP2/
     ├── pom.xml
     └── src/main/java/
         ├── Main.java
+        ├── core/SimulationEngine.java
         ├── models/Grid.java
         ├── models/Particle.java
         ├── models/SimulationParams.java

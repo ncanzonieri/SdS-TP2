@@ -41,6 +41,15 @@ public class Grid {
         return particles;
     }
 
+    /**
+     * Random con semilla de esta corrida (params.getSeed()). Se expone para que
+     * SimulationEngine lo reuse para el ruido y el sorteo del modelo de votante,
+     * en vez de crear un segundo Random desincronizado.
+     */
+    public Random getRandom() {
+        return random;
+    }
+
     /** Adds a random particle into cell (x, y). Several particles can share a cell. */
     public boolean addRandomParticle(int x, int y) {
         if (particles.size() >= N) {
@@ -57,29 +66,9 @@ public class Grid {
         return true;
     }
 
-    public double viscek(Particle particle, List<Particle> neighbors) {
-        double avgSin = Math.sin(particle.getAngle());
-        double avgCos = Math.cos(particle.getAngle());
-        for (Particle p : neighbors) {
-            avgSin+=Math.sin(p.getAngle());
-            avgCos+=Math.cos(p.getAngle());
-        }
-        avgSin = avgSin/(neighbors.size()+1);
-        avgCos = avgCos/(neighbors.size()+1);
-        return Math.atan2(avgSin, avgCos);
-    }
-
-    public void simulateTick() {
-        Map<Particle,List<Particle>> neighbors = nearestNeighbor();
-        for (Particle particle : particles) {
-            double theta = viscek(particle,neighbors.get(particle));
-            double x = particle.getX()+10*Math.cos(theta);
-            double y = particle.getY() +10*Math.sin(theta);
-            particle.setAngle(theta);
-            particle.setX(x);
-            particle.setY(y);
-        }
-    }
+    // La regla de actualizacion (Vicsek/Votante), el ruido y el loop temporal
+    // viven ahora en core.SimulationEngine (Paso 2) - Grid solo se ocupa del
+    // modelo de datos y del CIM.
 
     public Map<Particle,List<Particle>> nearestNeighbor() {
         Map<Cell,List<Particle>> grid = new HashMap<>();

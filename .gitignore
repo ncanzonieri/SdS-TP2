@@ -4,6 +4,10 @@
 # Maven build output
 target/
 
+# Output de simulaciones (generado por Main/futuros runs, no es codigo fuente)
+experiment/*.csv
+experiment/out/
+
 # Log file
 *.log
 

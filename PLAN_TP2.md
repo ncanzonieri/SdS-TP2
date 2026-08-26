@@ -3,7 +3,7 @@
 ## Estado (actualizar al terminar cada paso)
 
 - [x] Paso 1 — Modelo de datos y parametrización (compilado y verificado con smoke tests de CIM)
-- [ ] Paso 2 — Motor de actualización (Vicsek + Votante, ruido, wrap-around)
+- [x] Paso 2 — Motor de actualización (Vicsek + Votante, ruido, wrap-around) (compilado y verificado con smoke tests de orden/desorden/consenso/wrap-around)
 - [ ] Paso 3 — Observables por paso: polarización `va(t)` y clusters `S(t)`
 - [ ] Paso 4 — Persistencia: archivos de salida (estático / dinámico / observables)
 - [ ] Paso 5 — CLI / configuración de corridas y barrido de η
@@ -15,7 +15,7 @@ Cuando termines un paso: tildalo, hacé commit (mensaje `TP2 paso N: ...`), push
 
 El TP2 pide implementar el algoritmo de bandadas de Vicsek (off-lattice) en una caja `L=10` con contorno periódico, para tres densidades `ρ = 2, 4, 8` (`N = 200, 400, 800`), comparando el modelo estándar (promedio de ángulos de vecinos) contra el modelo de votante (copia el ángulo de un vecino al azar), ambos con ruido `η`. Además hay que calcular y exportar dos observables por paso temporal — la polarización `va` y el tamaño relativo del cluster más grande `S` — y comparar los tiempos de ejecución del Cell Index Method (CIM) contra los medidos en el TP1.
 
-Ya existe en `experiment/` (Java/Maven) un esqueleto reutilizable del TP1: `Particle` (id, x, y, angle), `Grid` (con un CIM funcional de vecinos con contorno periódico, aunque con `L` y `R` hardcodeados como `10`/`1.0`), un prototipo incompleto de `simulateTick()`/`viscek()` (sin ruido, sin wrap-around, velocidad hardcodeada en `10` en vez de `0.03`, sin variante votante), y un `CsvWriter` que solo escribe una foto estática. `Main.java` hoy solo genera partículas al azar y las vuelca a un CSV; nunca llama al loop de simulación. La carpeta `Contexto_Teorico/docs/` del repo ya tiene, en Markdown, el enunciado completo y las ecuaciones exactas (`Contexto_Teorico/docs/tp/TP2_Enunciado.md`, `Contexto_Teorico/docs/teoria/Teorica_2.md`, `Contexto_Teorico/docs/teoria/Teorica_1.md` para el CIM) — son la referencia normativa por sobre cualquier otra nota.
+Ya existe en `experiment/` (Java/Maven) un esqueleto reutilizable del TP1: `Particle` (id, x, y, angle), `Grid` (con un CIM funcional de vecinos con contorno periódico, aunque originalmente con `L` y `R` hardcodeados como `10`/`1.0`), un prototipo incompleto original de `simulateTick()`/`viscek()` (sin ruido, sin wrap-around, velocidad hardcodeada en `10` en vez de `0.03`, sin variante votante — **ya reemplazado por `core/SimulationEngine.java` en el Paso 2**, ver más abajo), y un `CsvWriter` que solo escribe una foto estática. `Main.java` hoy solo genera partículas al azar y las vuelca a un CSV; todavía no invoca el loop de simulación (`SimulationEngine`) — eso es Paso 5. La carpeta `Contexto_Teorico/docs/` del repo ya tiene, en Markdown, el enunciado completo y las ecuaciones exactas (`Contexto_Teorico/docs/tp/TP2_Enunciado.md`, `Contexto_Teorico/docs/teoria/Teorica_2.md`, `Contexto_Teorico/docs/teoria/Teorica_1.md` para el CIM) — son la referencia normativa por sobre cualquier otra nota.
 
 **Aclaración del profesor por mail (no está en el enunciado escrito, prevalece sobre él):** las densidades `ρ = 2, 4, 8` (`N = 200, 400, 800`) son para todo el estudio general (animaciones, `va` vs `η`, etc.). **Solo para el estudio de clusters** (punto d del enunciado: `S` vs tiempo y `S` vs `η`) hay que extender el barrido a tres densidades adicionales, más bajas: `ρ = 1/π, 1/(2π), 1/(3π)` → `N = 32, 16, 11` (con `L=10`, `N=ρ·L²`, redondeado). Estos son exactamente los valores que ya estaban anotados en el `README.md` del repo (N=11,16,32,200,400,800) — no era un borrador descartado, era esta extensión específica para clusters. El motor debe poder correr con cualquiera de las 6 densidades sin distinguir "modo cluster" a nivel de código — la distinción de qué densidades usar para qué estudio es una decisión de qué corridas lanzar, no del motor en sí.
 
@@ -42,22 +42,26 @@ Decisiones ya tomadas (no reabrir sin razón):
 
 **Qué encontrás al llegar (para quien siga con el Paso 2):** `Grid` construible con cualquier `L`/`rc`/semilla, `nearestNeighbor()` sigue devolviendo `Map<Particle,List<Particle>>` con vecinos correctos, `Particle` usable de forma segura en `HashMap`/`HashSet`.
 
-## Paso 2 — Motor de actualización (Vicsek + Votante, ruido, wrap-around)
+## Paso 2 — Motor de actualización (Vicsek + Votante, ruido, wrap-around) ✅ IMPLEMENTADO
 
 **Objetivo:** implementar correctamente las dos reglas de actualización de ángulo con ruido, actualización de posición con wrap-around periódico, y un loop temporal síncrono (todas las partículas se actualizan a partir del mismo estado "congelado" del paso anterior, no en cascada).
 
-**Qué hacer:**
-- Reemplazar `viscek()` por dos métodos separados (o una estrategia `Model` que despache):
-  - **Vicsek:** `θ(t+1) = atan2(⟨sin θ⟩r, ⟨cos θ⟩r) + R`, promedio incluyendo a la propia partícula (ya está bien encaminado en el código actual, salvo que hoy no suma el ruido).
-  - **Votante:** elegir al azar (con el `Random` con semilla) una partícula del conjunto `{i} ∪ vecinos(i)` y copiar su ángulo, `θ(t+1) = θ_random + R`.
-  - `R = U(-η/2, η/2)` en ambos casos (nuevo, hoy no existe ruido en el código).
-- Actualización de posición: `x_i(t+1) = x_i(t) + v·cos(θ(t+1))`, `y_i(t+1) = y_i(t) + v·sin(θ(t+1))` (usar `v=0.03` de `SimulationParams`, no el `10` hardcodeado actual), con wrap-around: `x = ((x % L) + L) % L` (mismo criterio para `y`).
-- **Sincronía:** calcular todos los `(θ_nuevo, x_nuevo, y_nuevo)` en un buffer a partir de los vecinos ya calculados al inicio del tick, y recién después mutar todas las partículas. El código actual muta en el mismo loop en que lee — funciona de casualidad para los ángulos (los vecinos se leyeron antes de mutar) pero es frágil; con el buffer queda correcto y explícito.
-- Nueva clase (sugerido) `core/SimulationEngine.java` con un método `List<ParticleState> step(SimulationParams params)` o `void run(int T)` que hace: `nearestNeighbor()` → actualizar todas las partículas → (dejar un punto de extensión para que el Paso 3 enganche el cálculo de observables por tick, y el Paso 4 el guardado).
+**Qué se hizo:**
+- Nueva clase `core/SimulationEngine.java`, con `step()` (un tick) y `run(steps)` (loop de `steps` ticks). Reemplaza por completo el prototipo `viscek()`/`simulateTick()` que tenía `Grid` (eliminado — Grid vuelve a ocuparse solo del modelo de datos y el CIM).
+- **Vicsek:** `θ(t+1) = atan2(⟨sin θ⟩r, ⟨cos θ⟩r) + R`, promedio incluyendo a la propia partícula.
+- **Votante:** se sortea un índice uniforme en `{i} ∪ vecinos(i)` (tamaño `neighbors.size()+1`) y se copia ese ángulo; si sale el último índice, se queda con el propio.
+- `R = U(-η/2, η/2)` sumado en ambos casos (antes no existía ruido en el código).
+- Posición: `x_i(t+1) = x_i(t) + v·cos(θ(t+1))`, igual para `y`, usando `v` de `SimulationParams` (ya no el `10` hardcodeado), con wrap-around `x % L` corrigiendo negativos.
+- **Sincronía:** `step()` primero calcula todos los ángulos nuevos en un array (`newAngles`, usando el estado congelado del tick anterior) y recién después muta posiciones/ángulos — ya no hay riesgo de que una partícula lea el ángulo ya actualizado de otra en el mismo tick.
+- `Grid` expone `getRandom()` para que el engine reutilice el mismo `Random` sembrado (mismo criterio de reproducibilidad del Paso 1) para el ruido y el sorteo del votante, en vez de crear un segundo `Random` desincronizado.
 
-**Archivos:** `experiment/src/main/java/models/Grid.java` (o nueva `core/SimulationEngine.java` si se prefiere separar del CIM), reutiliza `SimulationParams` del Paso 1.
+**Verificado (`mvn compile` limpio + smoke tests manuales, no versionados):**
+- Vicsek con `η=0`: `va` pasa de ~0.03 (inicio aleatorio) a ~0.998 tras 200 pasos (orden emergente correcto).
+- Vicsek con `η=2π` (ruido máximo): `va` se mantiene bajo (~0.05) tras 200 pasos (desorden correcto).
+- Votante con `η=0` y ángulo inicial idéntico en todas las partículas: `va=1.000000` exacto (consenso trivial correcto).
+- Wrap-around: partícula en `x=9.99` moviéndose en `+x` con `v=0.03` reaparece en `x≈0.02` (contorno periódico correcto).
 
-**Qué encontrás al llegar (para quien siga con el Paso 3):** un loop temporal que, dado `SimulationParams` con `model=VICSEK` o `VOTANTE`, hace evolucionar correctamente `N` partículas por `T` pasos, con ruido y contorno periódico. Se puede probar imprimiendo posiciones/ángulos por consola paso a paso todavía sin persistencia en archivo.
+**Qué encontrás al llegar (para quien siga con el Paso 3):** `SimulationEngine(grid, params).run(T)` hace evolucionar correctamente `N` partículas por `T` pasos con el modelo elegido, ruido y contorno periódico. `step()` está pensado para llamarse desde un loop externo y engancharle el cálculo de observables (Paso 3) y la persistencia (Paso 4) después de cada tick — hoy no hace ninguna de las dos cosas todavía. `Main.java` sigue sin invocar el engine (eso es Paso 5).
 
 ## Paso 3 — Observables por paso: polarización `va(t)` y clusters `S(t)`
 
