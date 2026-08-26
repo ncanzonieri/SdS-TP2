@@ -1,28 +1,25 @@
 package models;
 
 import java.util.*;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 public class Grid {
     private final int N;
-    private final int L;
-    private final double rc;
-    // Cantidad de celdas por lado del CIM y su tamano real: M = floor(L/rc),
-    // cellSize = L/M (siempre >= rc). Antes el codigo asumia M == L (valido
-    // solo cuando rc == 1); con L y rc ahora parametrizables, hay que
-    // calcularlo en serio para no romper el CIM si rc != 1.
-    private final int M;
-    private final double cellSize;
+    private final double noise;
+    private final static int L=10;
+    private final static double R=1.0;
+    private final boolean isViscek;
     private final List<Particle> particles;
     private final Random random;
 
+    @SuppressWarnings("unchecked")
     public Grid(SimulationParams params) {
         this.N = params.getN();
-        this.L = params.getL();
-        this.rc = params.getRc();
-        this.M = Math.max(1, (int) Math.floor((double) this.L / this.rc));
-        this.cellSize = (double) this.L / this.M;
+        this.noise = params.getNoise();
         this.particles = new ArrayList<>();
         this.random = new Random(params.getSeed());
+        this.isViscek = params.getModel().equals(SimulationParams.Model.VICSEK);
     }
 
     public int getN() {
@@ -31,10 +28,6 @@ public class Grid {
 
     public int getL() {
         return L;
-    }
-
-    public double getRc() {
-        return rc;
     }
 
     public List<Particle> getParticles() {
@@ -51,40 +44,72 @@ public class Grid {
     }
 
     /** Adds a random particle into cell (x, y). Several particles can share a cell. */
-    public boolean addRandomParticle(int x, int y) {
+    public void addRandomParticle(int x, int y) {
         if (particles.size() >= N) {
-            return false;
+            return;
         }
         if (x < 0 || x >= L || y < 0 || y >= L) {
-            return false;
+            return;
         }
 
         double angle = random.nextDouble() * 2*Math.PI;
         Particle particle = new Particle(particles.size() + 1, x, y, angle);
 
         particles.add(particle);
-        return true;
     }
 
-    // La regla de actualizacion (Vicsek/Votante), el ruido y el loop temporal
-    // viven ahora en core.SimulationEngine (Paso 2) - Grid solo se ocupa del
-    // modelo de datos y del CIM.
+    public double viscek(Particle particle, List<Particle> neighbors) {
+        return Stream.concat(Stream.of(particle),neighbors.stream())
+                .collect(Collectors.teeing(
+                        Collectors.summingDouble(p->Math.sin(p.getAngle())),
+                        Collectors.summingDouble(p->Math.cos(p.getAngle())),
+                        Math::atan2
+                ));
+    }
+
+    public double voting(Particle particle, List<Particle> neighbors) {
+        return neighbors.get(random.nextInt(neighbors.size())).getAngle();
+    }
+
+    /**
+     * Simula un tick de simulación, actualizando ángulos y posiciones de partículas y devolviendo el parámetro de orden en el nuevo instante
+     * @return
+     */
+    public double simulateTick() {
+        Map<Particle,List<Particle>> neighbors = nearestNeighbor();
+        for (Particle particle : particles) {
+            double theta = isViscek ?
+                    viscek(particle,neighbors.get(particle)) :
+                    voting(particle,neighbors.get(particle)) +
+                    random.nextDouble(-noise/2, noise/2);
+            double x = particle.getX()+10*Math.cos(theta);
+            double y = particle.getY() +10*Math.sin(theta);
+            particle.setAngle(theta);
+            particle.setX(x);
+            particle.setY(y);
+        }
+        return particles.stream().collect(Collectors.teeing(
+                Collectors.summingDouble(p->Math.cos(p.getAngle())),
+                Collectors.summingDouble(p->Math.sin(p.getAngle())),
+                Math::hypot
+        ))/N;
+    }
 
     public Map<Particle,List<Particle>> nearestNeighbor() {
         Map<Cell,List<Particle>> grid = new HashMap<>();
         for (Particle particle : particles) {
-            int i = (int) (particle.getX() / cellSize);
-            int j = (int) (particle.getY() / cellSize);
+            int i = (int) (particle.getX() / R);
+            int j = (int) (particle.getY() / R);
             grid.computeIfAbsent(new Cell(i, j), k -> new ArrayList<>()).add(particle);
         }
 
         Map<Particle,List<Particle>> neighbours = new HashMap<>();
         for(Map.Entry<Cell,List<Particle>> entry : grid.entrySet()) {
             Set<Particle> possible = new HashSet<>();
-            possible.addAll(grid.getOrDefault(new Cell((entry.getKey().getI() + 1) % M , entry.getKey().getJ()), new ArrayList<>()));
-            possible.addAll(grid.getOrDefault(new Cell((entry.getKey().getI() + 1) % M , (entry.getKey().getJ() + 1) % M), new ArrayList<>()));
-            possible.addAll(grid.getOrDefault(new Cell(entry.getKey().getI() , (entry.getKey().getJ() + 1) % M), new ArrayList<>()));
-            possible.addAll(grid.getOrDefault(new Cell((entry.getKey().getI() + M - 1) % M , (entry.getKey().getJ() + 1) % M), new ArrayList<>()));
+            possible.addAll(grid.getOrDefault(new Cell((entry.getKey().getI() + 1) % L , entry.getKey().getJ()), new ArrayList<>()));
+            possible.addAll(grid.getOrDefault(new Cell((entry.getKey().getI() + 1) % L , (entry.getKey().getJ() + 1) % L), new ArrayList<>()));
+            possible.addAll(grid.getOrDefault(new Cell(entry.getKey().getI() , (entry.getKey().getJ() + 1) % L), new ArrayList<>()));
+            possible.addAll(grid.getOrDefault(new Cell((entry.getKey().getI() + L - 1) % L , (entry.getKey().getJ() + 1) % L), new ArrayList<>()));
             entry.getValue().forEach(possible::remove);
             cellIndexMethod(neighbours, entry, possible);
         }
@@ -112,7 +137,7 @@ public class Grid {
         double dy = Math.abs(particle.getY() - other.getY());
         dx = Math.min(dx, L - dx);
         dy = Math.min(dy, L - dy);
-        return Math.hypot(dx, dy) < rc;
+        return Math.hypot(dx, dy) < R;
     }
 
     private static void addUnique(Map<Particle, List<Particle>> neighbours, Particle particle, Particle other) {

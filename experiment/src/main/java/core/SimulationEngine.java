@@ -146,7 +146,7 @@ public class SimulationEngine {
 
     /** Ruido uniforme R ~ U(-eta/2, eta/2), comun a ambos modelos. */
     private double noise() {
-        double eta = params.getEta();
+        double eta = params.getNoise();
         return random.nextDouble() * eta - eta / 2;
     }
 
