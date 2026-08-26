@@ -1,5 +1,7 @@
 package models;
 
+import java.util.Objects;
+
 public class Particle {
     private int id;
     private double x;
@@ -48,5 +50,22 @@ public class Particle {
     @Override
     public boolean equals(Object o) {
         return o instanceof Particle && this.id == ((Particle)o).id;
+    }
+
+    @Override
+    public int hashCode() {
+        // Consistente con equals (que solo compara id) - necesario porque Particle
+        // se usa como key de HashMap/HashSet en Grid.nearestNeighbor().
+        return Objects.hash(id);
+    }
+
+    /** Componente x de la velocidad, dado el modulo v (constante, vive en SimulationParams). */
+    public double vx(double v) {
+        return v * Math.cos(angle);
+    }
+
+    /** Componente y de la velocidad, dado el modulo v (constante, vive en SimulationParams). */
+    public double vy(double v) {
+        return v * Math.sin(angle);
     }
 }

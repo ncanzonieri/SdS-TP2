@@ -4,23 +4,25 @@ import java.util.*;
 
 public class Grid {
     private final int N;
-    private final static int L=10;
-    private final static double R=1.0;
+    private final int L;
+    private final double rc;
+    // Cantidad de celdas por lado del CIM y su tamano real: M = floor(L/rc),
+    // cellSize = L/M (siempre >= rc). Antes el codigo asumia M == L (valido
+    // solo cuando rc == 1); con L y rc ahora parametrizables, hay que
+    // calcularlo en serio para no romper el CIM si rc != 1.
+    private final int M;
+    private final double cellSize;
     private final List<Particle> particles;
-    private final List<Particle>[][] matrix;
-    private final Random random = new Random();
+    private final Random random;
 
-    @SuppressWarnings("unchecked")
-    public Grid(int N) {
-        this.N = N;
+    public Grid(SimulationParams params) {
+        this.N = params.getN();
+        this.L = params.getL();
+        this.rc = params.getRc();
+        this.M = Math.max(1, (int) Math.floor((double) this.L / this.rc));
+        this.cellSize = (double) this.L / this.M;
         this.particles = new ArrayList<>();
-        this.matrix = new List[L][L];
-
-        for (int i = 0; i < L; i++) {
-            for (int j = 0; j < L; j++) {
-                matrix[i][j] = new ArrayList<>();
-            }
-        }
+        this.random = new Random(params.getSeed());
     }
 
     public int getN() {
@@ -31,12 +33,12 @@ public class Grid {
         return L;
     }
 
-    public List<Particle> getParticles() {
-        return particles;
+    public double getRc() {
+        return rc;
     }
 
-    public List<Particle>[][] getMatrix() {
-        return matrix;
+    public List<Particle> getParticles() {
+        return particles;
     }
 
     /** Adds a random particle into cell (x, y). Several particles can share a cell. */
@@ -52,7 +54,6 @@ public class Grid {
         Particle particle = new Particle(particles.size() + 1, x, y, angle);
 
         particles.add(particle);
-        matrix[x][y].add(particle);
         return true;
     }
 
@@ -81,21 +82,20 @@ public class Grid {
     }
 
     public Map<Particle,List<Particle>> nearestNeighbor() {
-        double side = R;
         Map<Cell,List<Particle>> grid = new HashMap<>();
         for (Particle particle : particles) {
-            int i = (int) (particle.getX() / side);
-            int j = (int) (particle.getY() / side);
+            int i = (int) (particle.getX() / cellSize);
+            int j = (int) (particle.getY() / cellSize);
             grid.computeIfAbsent(new Cell(i, j), k -> new ArrayList<>()).add(particle);
         }
 
         Map<Particle,List<Particle>> neighbours = new HashMap<>();
         for(Map.Entry<Cell,List<Particle>> entry : grid.entrySet()) {
             Set<Particle> possible = new HashSet<>();
-            possible.addAll(grid.getOrDefault(new Cell((entry.getKey().getI() + 1) % L , entry.getKey().getJ()), new ArrayList<>()));
-            possible.addAll(grid.getOrDefault(new Cell((entry.getKey().getI() + 1) % L , (entry.getKey().getJ() + 1) % L), new ArrayList<>()));
-            possible.addAll(grid.getOrDefault(new Cell(entry.getKey().getI() , (entry.getKey().getJ() + 1) % L), new ArrayList<>()));
-            possible.addAll(grid.getOrDefault(new Cell((entry.getKey().getI() + L - 1) % L , (entry.getKey().getJ() + 1) % L), new ArrayList<>()));
+            possible.addAll(grid.getOrDefault(new Cell((entry.getKey().getI() + 1) % M , entry.getKey().getJ()), new ArrayList<>()));
+            possible.addAll(grid.getOrDefault(new Cell((entry.getKey().getI() + 1) % M , (entry.getKey().getJ() + 1) % M), new ArrayList<>()));
+            possible.addAll(grid.getOrDefault(new Cell(entry.getKey().getI() , (entry.getKey().getJ() + 1) % M), new ArrayList<>()));
+            possible.addAll(grid.getOrDefault(new Cell((entry.getKey().getI() + M - 1) % M , (entry.getKey().getJ() + 1) % M), new ArrayList<>()));
             entry.getValue().forEach(possible::remove);
             cellIndexMethod(neighbours, entry, possible);
         }
@@ -123,7 +123,7 @@ public class Grid {
         double dy = Math.abs(particle.getY() - other.getY());
         dx = Math.min(dx, L - dx);
         dy = Math.min(dy, L - dy);
-        return Math.hypot(dx, dy) < R;
+        return Math.hypot(dx, dy) < rc;
     }
 
     private static void addUnique(Map<Particle, List<Particle>> neighbours, Particle particle, Particle other) {
