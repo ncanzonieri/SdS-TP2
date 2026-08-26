@@ -1,10 +1,13 @@
 package core;
 
+import analysis.ClusterFinder;
+import analysis.OrderParameter;
 import models.Grid;
 import models.Particle;
 import models.SimulationParams;
 import models.SimulationParams.Model;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Random;
@@ -15,13 +18,16 @@ import java.util.Random;
  * tiempo (dt=1, ver SimulationParams):
  *
  *   1. Busca vecinos dentro de rc via el CIM de Grid.
- *   2. Calcula el nuevo angulo de cada particula segun el modelo elegido
+ *   2. Registra los observables primarios del estado actual (t): polarizacion
+ *      `va` (analysis.OrderParameter) y fraccion del cluster mas grande `S`
+ *      (analysis.ClusterFinder), reusando los mismos vecinos del CIM.
+ *   3. Calcula el nuevo angulo de cada particula segun el modelo elegido
  *      (Vicsek: promedio circular de si misma + vecinos; Votante: copia el
  *      angulo de un vecino al azar, incluyendose a si misma), sumando ruido
  *      R ~ U(-eta/2, eta/2).
- *   3. Actualiza la posicion con modulo v constante y wrap-around periodico.
+ *   4. Actualiza la posicion con modulo v constante y wrap-around periodico.
  *
- * El paso 2 se calcula en un buffer (todas las particulas leen el angulo
+ * El paso 3 se calcula en un buffer (todas las particulas leen el angulo
  * "congelado" del tick anterior antes de que nadie se mueva) para que la
  * actualizacion sea realmente sincronica y no dependa del orden de iteracion.
  */
@@ -30,6 +36,8 @@ public class SimulationEngine {
     private final Grid grid;
     private final SimulationParams params;
     private final Random random;
+    private final List<ObservableSample> observables = new ArrayList<>();
+    private int t = 0;
 
     public SimulationEngine(Grid grid, SimulationParams params) {
         this.grid = grid;
@@ -42,21 +50,34 @@ public class SimulationEngine {
     }
 
     /**
-     * Corre `steps` pasos de tiempo. Punto de extension para los pasos
-     * siguientes del plan: quien necesite observables por tick (Paso 3) o
-     * persistencia en disco (Paso 4) puede llamar a step() directamente en su
-     * propio loop en lugar de run(), y engancharse despues de cada paso.
+     * Serie temporal (t, va, S) acumulada hasta ahora - un elemento por cada
+     * estado registrado (uno por step(), mas el estado final de run()). La
+     * persistencia a disco (Paso 4) va a leer esta lista.
+     */
+    public List<ObservableSample> getObservables() {
+        return observables;
+    }
+
+    /**
+     * Corre `steps` pasos de tiempo y ademas registra el estado final (t ==
+     * steps), que step() por si solo no llega a capturar (siempre registra el
+     * estado ANTES de moverse - ver step()).
      */
     public void run(int steps) {
-        for (int t = 0; t < steps; t++) {
+        for (int i = 0; i < steps; i++) {
             step();
         }
+        sampleObservables();
     }
 
     /** Ejecuta un unico paso de tiempo (dt=1) sobre todas las particulas. */
     public void step() {
         List<Particle> particles = grid.getParticles();
         Map<Particle, List<Particle>> neighbors = grid.nearestNeighbor();
+
+        // Los observables del instante t se calculan ANTES de mover a nadie,
+        // reusando estos mismos vecinos (evita buscar vecinos dos veces por tick).
+        recordObservables(particles, neighbors);
 
         // Buffer: theta_i(t+1) de cada particula, calculado a partir del estado
         // congelado del tick anterior (nadie lee un angulo ya actualizado).
@@ -81,6 +102,23 @@ public class SimulationEngine {
             particle.setY(wrap(particle.getY() + v * Math.sin(theta), L));
             particle.setAngle(theta);
         }
+
+        t++;
+    }
+
+    /**
+     * Registra (t, va, S) del estado actual sin avanzar el tiempo ni mover a
+     * nadie. Util para capturar el estado final tras run() (que step() no
+     * llega a registrar, ya que siempre registra el estado ANTES de moverse).
+     */
+    public void sampleObservables() {
+        recordObservables(grid.getParticles(), grid.nearestNeighbor());
+    }
+
+    private void recordObservables(List<Particle> particles, Map<Particle, List<Particle>> neighbors) {
+        double va = OrderParameter.polarization(particles);
+        double s = ClusterFinder.largestClusterFraction(neighbors, particles);
+        observables.add(new ObservableSample(t, va, s));
     }
 
     /**

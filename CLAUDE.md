@@ -15,8 +15,8 @@ El plan de implementación paso a paso vive en `PLAN_TP2.md` (raíz del repo) �
 
 - [x] **Paso 1 — Modelo de datos y parametrización.** `Grid`/`Particle` ya no tienen `L`/`R` hardcodeados; se agregó `SimulationParams` (agrupa N, L, rc, v, eta, T, seed, modelo) y se corrigió un bug de `equals`/`hashCode` en `Particle` y un bug latente del cálculo de celdas del CIM (asumía `M==L`, ahora `M=floor(L/rc)`). Detalle completo en `PLAN_TP2.md`.
 - [x] **Paso 2 — Motor de actualización (Vicsek + Votante, ruido, wrap-around).** Nueva clase `core/SimulationEngine.java` (`step()`/`run(T)`) reemplaza el prototipo `viscek()`/`simulateTick()` de `Grid` (eliminado): actualización síncrona vía buffer, ruido `U(-η/2,η/2)` en ambos modelos, posición con `v` real y wrap-around periódico. Verificado con smoke tests (orden con η=0, desorden con η alto, consenso del votante, wrap-around). `Main` todavía no invoca el engine — eso es Paso 5. Detalle completo en `PLAN_TP2.md`.
-- [ ] Paso 3 — Observables por paso (`va`, clusters `S`) — **siguiente paso a implementar.**
-- [ ] Paso 4 — Persistencia (archivos de salida)
+- [x] **Paso 3 — Observables por paso (`va`, clusters `S`).** Nuevas `analysis/OrderParameter.java` (polarización) y `analysis/ClusterFinder.java` (Union-Find sobre los vecinos del CIM). `SimulationEngine` ahora registra `(t, va, S)` en cada `step()` (reusando los vecinos ya calculados, sin duplicar el CIM) y expone la serie completa vía `getObservables()`. Verificado con smoke tests (tamaño de la serie, densidad alta/baja, y un grafo de vecinos armado a mano para el Union-Find). Detalle completo en `PLAN_TP2.md`.
+- [ ] Paso 4 — Persistencia (archivos de salida) — **siguiente paso a implementar.**
 - [ ] Paso 5 — CLI / barrido de η
 - [ ] Paso 6 — Benchmark del CIM + limpieza final
 
@@ -41,7 +41,10 @@ SdS-TP2/
     ├── pom.xml
     └── src/main/java/
         ├── Main.java
+        ├── analysis/OrderParameter.java
+        ├── analysis/ClusterFinder.java
         ├── core/SimulationEngine.java
+        ├── core/ObservableSample.java
         ├── models/Grid.java
         ├── models/Particle.java
         ├── models/SimulationParams.java

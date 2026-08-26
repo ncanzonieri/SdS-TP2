@@ -4,6 +4,7 @@
 
 - [x] Paso 1 — Modelo de datos y parametrización (compilado y verificado con smoke tests de CIM)
 - [x] Paso 2 — Motor de actualización (Vicsek + Votante, ruido, wrap-around) (compilado y verificado con smoke tests de orden/desorden/consenso/wrap-around)
+- [x] Paso 3 — Observables por paso: polarización `va(t)` y clusters `S(t)` (compilado y verificado con smoke tests de la serie temporal y del Union-Find sobre un grafo conocido)
 - [ ] Paso 3 — Observables por paso: polarización `va(t)` y clusters `S(t)`
 - [ ] Paso 4 — Persistencia: archivos de salida (estático / dinámico / observables)
 - [ ] Paso 5 — CLI / configuración de corridas y barrido de η
@@ -63,18 +64,25 @@ Decisiones ya tomadas (no reabrir sin razón):
 
 **Qué encontrás al llegar (para quien siga con el Paso 3):** `SimulationEngine(grid, params).run(T)` hace evolucionar correctamente `N` partículas por `T` pasos con el modelo elegido, ruido y contorno periódico. `step()` está pensado para llamarse desde un loop externo y engancharle el cálculo de observables (Paso 3) y la persistencia (Paso 4) después de cada tick — hoy no hace ninguna de las dos cosas todavía. `Main.java` sigue sin invocar el engine (eso es Paso 5).
 
-## Paso 3 — Observables por paso: polarización `va(t)` y clusters `S(t)`
+## Paso 3 — Observables por paso: polarización `va(t)` y clusters `S(t)` ✅ IMPLEMENTADO
 
 **Objetivo:** en cada tick del loop, calcular los dos observables primarios pedidos por el enunciado (a) `va` y (d) `S`), usando la lista de vecinos que ya devuelve el CIM.
 
-**Qué hacer:**
-- `va(t) = |Σ_i (cos θ_i, sin θ_i)| / N` (el `v` de la fórmula del enunciado se cancela al ser constante — dejar un comentario aclarando la simplificación para que quien lea el informe no se confunda). Método simple, por ejemplo en una clase `analysis/OrderParameter.java` o como método estático.
-- Clusters: usar Union-Find (Disjoint Set con path compression + union by rank) sobre los pares `(i,j)` que ya salen de `nearestNeighbor()` — por cada partícula `i` y cada vecino `j` en su lista, `union(i,j)`. Al final, tamaño del cluster más grande = el componente con más elementos; `S(t) = tamaño_max / N`. Clase sugerida `analysis/ClusterFinder.java` con método `double largestClusterFraction(Map<Particle,List<Particle>> neighbors, int N)`.
-- Enganchar ambos cálculos en el loop del Paso 2: en cada tick, después de actualizar, calcular `va(t)` y `S(t)` y guardarlos en memoria (una lista/array por tick) — la escritura a archivo es el Paso 4, acá solo hace falta que el dato exista.
+**Qué se hizo:**
+- Nueva clase `analysis/OrderParameter.java`: `polarization(particles)` calcula `va = |Σ_i (cos θ_i, sin θ_i)| / N` (el `v` de la fórmula del enunciado se cancela al ser constante — queda comentado en el código).
+- Nueva clase `analysis/ClusterFinder.java`: `largestClusterFraction(neighbors, particles)` con Union-Find (Disjoint Set, path compression + union by rank) sobre el mapa de vecinos que devuelve `Grid.nearestNeighbor()` — `union(i,j)` por cada par vecino, y al final `S = tamaño del componente más grande / N`. (Firma final recibe `List<Particle>` en vez de solo `int N` porque hace falta la lista para indexar el mapa de vecinos.)
+- Nuevo `core/ObservableSample.java` (record `t, va, s`) — una muestra de la serie temporal.
+- `core/SimulationEngine.java`: `step()` ahora registra `(t, va, S)` del estado **antes de mover a nadie**, reusando el mismo mapa de vecinos que ya calculaba para la regla de actualización (no se duplica la búsqueda del CIM en cada tick). `run(steps)` corre `steps` pasos y además registra el estado final (`t == steps`) con una búsqueda de vecinos extra al final — así la serie queda completa con `T+1` muestras (`t=0` inicial incluido) sin pagar el costo de una búsqueda doble en cada tick intermedio. Nuevo método público `sampleObservables()` para registrar el estado actual sin avanzar el tiempo (usado internamente por `run()`, disponible también si alguien quiere una muestra puntual). Nuevo getter `getObservables()` devuelve la lista acumulada.
 
-**Archivos:** nuevas `experiment/src/main/java/analysis/OrderParameter.java`, `experiment/src/main/java/analysis/ClusterFinder.java`; enganche en `core/SimulationEngine.java` (o `Grid.java`) del Paso 2.
+**Verificado (`mvn compile` limpio + smoke tests manuales, no versionados):**
+- `run(30)` genera exactamente 31 muestras (`T+1`).
+- Densidad alta (`ρ=8`, `N=800`): `S≈1.000` casi desde el arranque (esperable, muy por encima del umbral de percolación con `rc=1`); `va` sube de 0.05 a 0.63 en 30 pasos (todavía convergiendo, consistente).
+- Densidad baja del estudio de clusters (`ρ=1/(3π)`, `N=11`): `S` inicial bajo (0.18 ≈ 2/11), consistente con partículas dispersas.
+- `ClusterFinder` contra un grafo de vecinos armado a mano (cadena de 3 + 1 aislada): `S=0.75` exacto, como corresponde.
 
-**Qué encontrás al llegar (para quien siga con el Paso 4):** el loop de simulación ya produce, por cada tick, una tripla `(t, va, S)` además del estado de las partículas — solo falta persistirlo en disco con el formato correcto.
+**Archivos:** `experiment/src/main/java/analysis/OrderParameter.java`, `experiment/src/main/java/analysis/ClusterFinder.java`, `experiment/src/main/java/core/ObservableSample.java`, `experiment/src/main/java/core/SimulationEngine.java` (modificado).
+
+**Qué encontrás al llegar (para quien siga con el Paso 4):** `engine.run(T)` (o `step()` en loop propio) ya deja en `engine.getObservables()` la serie completa `(t, va, S)` además del estado de las partículas — solo falta persistir todo esto (posiciones/velocidades y la serie de observables) en disco con el formato correcto.
 
 ## Paso 4 — Persistencia: archivos de salida (estático / dinámico / observables)
 
