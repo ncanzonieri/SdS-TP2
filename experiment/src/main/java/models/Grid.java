@@ -1,6 +1,8 @@
 package models;
 
 import java.util.*;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 public class Grid {
     private final int N;
@@ -15,12 +17,9 @@ public class Grid {
     private final List<Particle> particles;
     private final Random random;
 
+    @SuppressWarnings("unchecked")
     public Grid(SimulationParams params) {
         this.N = params.getN();
-        this.L = params.getL();
-        this.rc = params.getRc();
-        this.M = Math.max(1, (int) Math.floor((double) this.L / this.rc));
-        this.cellSize = (double) this.L / this.M;
         this.particles = new ArrayList<>();
         this.random = new Random(params.getSeed());
     }
@@ -31,10 +30,6 @@ public class Grid {
 
     public int getL() {
         return L;
-    }
-
-    public double getRc() {
-        return rc;
     }
 
     public List<Particle> getParticles() {
