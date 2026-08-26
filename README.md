@@ -3,7 +3,7 @@
 #### Grupo 9:
 Canzonieri, Nicolás 63501
 
-Díaz Varela, Lola
+Díaz Varela, Lola  62792
 
 Viera, Federico
 
