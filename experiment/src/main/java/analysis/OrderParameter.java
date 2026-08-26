@@ -3,6 +3,7 @@ package analysis;
 import models.Particle;
 
 import java.util.List;
+import java.util.stream.Collectors;
 
 /**
  * Polarizacion (parametro de orden) del sistema: va = |Sum_i (cos th_i, sin th_i)| / N.
@@ -21,12 +22,10 @@ public final class OrderParameter {
         if (particles.isEmpty()) {
             return 0.0;
         }
-        double sumCos = 0;
-        double sumSin = 0;
-        for (Particle p : particles) {
-            sumCos += Math.cos(p.getAngle());
-            sumSin += Math.sin(p.getAngle());
-        }
-        return Math.hypot(sumCos, sumSin) / particles.size();
+        return particles.stream().collect(Collectors.teeing(
+                Collectors.summingDouble(p->Math.cos(p.getAngle())),
+                Collectors.summingDouble(p->Math.sin(p.getAngle())),
+                Math::hypot
+        ))/particles.size();
     }
 }

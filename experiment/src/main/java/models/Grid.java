@@ -7,9 +7,9 @@ public class Grid {
     private final int L;
     private final double rc;
     // Cantidad de celdas por lado del CIM y su tamano real: M = floor(L/rc),
-    // cellSize = L/M (siempre >= rc). Antes el codigo asumia M == L (valido
-    // solo cuando rc == 1); con L y rc ahora parametrizables, hay que
-    // calcularlo en serio para no romper el CIM si rc != 1.
+    // cellSize = L/M (siempre >= rc). Si se asume M == L el CIM solo es valido
+    // cuando rc == 1; calcularlo en serio lo deja correcto para cualquier rc
+    // (hace falta para el benchmark del Paso 6, que compara contra el TP1 con L=20).
     private final int M;
     private final double cellSize;
     private final List<Particle> particles;
@@ -71,25 +71,21 @@ public class Grid {
         }
     }
 
-    // La regla de actualizacion (Vicsek/Votante), el ruido y el loop temporal
-    // viven ahora en core.SimulationEngine (Paso 2) - Grid solo se ocupa del
-    // modelo de datos y del CIM.
-
     public Map<Particle,List<Particle>> nearestNeighbor() {
         Map<Cell,List<Particle>> grid = new HashMap<>();
         for (Particle particle : particles) {
-            int i = (int) (particle.getX() / cellSize);
-            int j = (int) (particle.getY() / cellSize);
+            int i = (int) (particle.getX() / R);
+            int j = (int) (particle.getY() / R);
             grid.computeIfAbsent(new Cell(i, j), k -> new ArrayList<>()).add(particle);
         }
 
         Map<Particle,List<Particle>> neighbours = new HashMap<>();
         for(Map.Entry<Cell,List<Particle>> entry : grid.entrySet()) {
             Set<Particle> possible = new HashSet<>();
-            possible.addAll(grid.getOrDefault(new Cell((entry.getKey().getI() + 1) % M , entry.getKey().getJ()), new ArrayList<>()));
-            possible.addAll(grid.getOrDefault(new Cell((entry.getKey().getI() + 1) % M , (entry.getKey().getJ() + 1) % M), new ArrayList<>()));
-            possible.addAll(grid.getOrDefault(new Cell(entry.getKey().getI() , (entry.getKey().getJ() + 1) % M), new ArrayList<>()));
-            possible.addAll(grid.getOrDefault(new Cell((entry.getKey().getI() + M - 1) % M , (entry.getKey().getJ() + 1) % M), new ArrayList<>()));
+            possible.addAll(grid.getOrDefault(new Cell((entry.getKey().getI() + 1) % L , entry.getKey().getJ()), new ArrayList<>()));
+            possible.addAll(grid.getOrDefault(new Cell((entry.getKey().getI() + 1) % L , (entry.getKey().getJ() + 1) % L), new ArrayList<>()));
+            possible.addAll(grid.getOrDefault(new Cell(entry.getKey().getI() , (entry.getKey().getJ() + 1) % L), new ArrayList<>()));
+            possible.addAll(grid.getOrDefault(new Cell((entry.getKey().getI() + L - 1) % L , (entry.getKey().getJ() + 1) % L), new ArrayList<>()));
             entry.getValue().forEach(possible::remove);
             cellIndexMethod(neighbours, entry, possible);
         }
@@ -117,7 +113,7 @@ public class Grid {
         double dy = Math.abs(particle.getY() - other.getY());
         dx = Math.min(dx, L - dx);
         dy = Math.min(dy, L - dy);
-        return Math.hypot(dx, dy) < rc;
+        return Math.hypot(dx, dy) < R;
     }
 
     private static void addUnique(Map<Particle, List<Particle>> neighbours, Particle particle, Particle other) {

@@ -13,7 +13,7 @@ public class SimulationParams {
     private final int L;
     private final double rc;
     private final double v;
-    private final double eta;
+    private final double noise;
     private final int T;
     private final long seed;
     private final Model model;
@@ -23,7 +23,7 @@ public class SimulationParams {
         this.L = L;
         this.rc = rc;
         this.v = v;
-        this.eta = eta;
+        this.noise = eta;
         this.T = T;
         this.seed = seed;
         this.model = model;
@@ -54,8 +54,8 @@ public class SimulationParams {
         return v;
     }
 
-    public double getEta() {
-        return eta;
+    public double getNoise() {
+        return noise;
     }
 
     public int getT() {

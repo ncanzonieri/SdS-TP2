@@ -12,6 +12,8 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Random;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 /**
  * Loop temporal de la simulacion de bandadas (Vicsek/Votante). Cada llamada a
@@ -144,27 +146,25 @@ public class SimulationEngine {
      * propia particula y sus vecinos dentro de rc (Ecuacion 2 del enunciado).
      */
     private double vicsekAngle(Particle particle, List<Particle> neighbors) {
-        double sumSin = Math.sin(particle.getAngle());
-        double sumCos = Math.cos(particle.getAngle());
-        for (Particle p : neighbors) {
-            sumSin += Math.sin(p.getAngle());
-            sumCos += Math.cos(p.getAngle());
-        }
-        return Math.atan2(sumSin, sumCos);
+        return Stream.concat(Stream.of(particle),neighbors.stream())
+                .collect(Collectors.teeing(
+                        Collectors.summingDouble(p->Math.sin(p.getAngle())),
+                        Collectors.summingDouble(p->Math.cos(p.getAngle())),
+                        Math::atan2
+                ));
     }
 
     /**
      * Modelo de votante: en vez de promediar, copia el angulo de una unica
-     * particula elegida al azar entre {si misma} U vecinos.
+     * particula elegida al azar entre vecinos.
      */
     private double voterAngle(Particle particle, List<Particle> neighbors) {
-        int pick = random.nextInt(neighbors.size() + 1);
-        return pick == neighbors.size() ? particle.getAngle() : neighbors.get(pick).getAngle();
+        return neighbors.get(random.nextInt(neighbors.size())).getAngle();
     }
 
     /** Ruido uniforme R ~ U(-eta/2, eta/2), comun a ambos modelos. */
     private double noise() {
-        double eta = params.getEta();
+        double eta = params.getNoise();
         return random.nextDouble() * eta - eta / 2;
     }
 
