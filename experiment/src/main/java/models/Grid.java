@@ -1,25 +1,18 @@
 package models;
 
 import java.util.*;
-import java.util.stream.Collectors;
-import java.util.stream.Stream;
 
 public class Grid {
     private final int N;
     private final int L;
-    private final double rc;
-    // Cantidad de celdas por lado del CIM y su tamano real: M = floor(L/rc),
-    // cellSize = L/M (siempre >= rc). Si se asume M == L el CIM solo es valido
-    // cuando rc == 1; calcularlo en serio lo deja correcto para cualquier rc
-    // (hace falta para el benchmark del Paso 6, que compara contra el TP1 con L=20).
-    private final int M;
-    private final double cellSize;
+    private final double R;
     private final List<Particle> particles;
     private final Random random;
 
-    @SuppressWarnings("unchecked")
     public Grid(SimulationParams params) {
         this.N = params.getN();
+        this.L = params.getL();
+        this.R = params.getR();
         this.particles = new ArrayList<>();
         this.random = new Random(params.getSeed());
     }
@@ -46,14 +39,7 @@ public class Grid {
     }
 
     /**
-     * Condiciones iniciales del modelo (Teorica_2, diapositiva 41): en t=0 las N
-     * particulas se distribuyen al azar en la celda, con direcciones theta
-     * tambien al azar. Las posiciones son continuas dentro de [0,L)^2 - el
-     * sistema es OFF-LATTICE, las particulas no estan atadas a una grilla.
-     *
-     * (Reemplaza al addRandomParticle(int,int) del TP1, que colocaba las
-     * particulas en coordenadas enteras: servia para el demo de vecinos de
-     * aquel TP, pero seria incorrecto como condicion inicial de Vicsek.)
+     * Posiciona las N partículas en el plano
      */
     public void initializeRandom() {
         particles.clear();
@@ -71,7 +57,7 @@ public class Grid {
         for (Particle particle : particles) {
             int i = (int) (particle.getX() / R);
             int j = (int) (particle.getY() / R);
-            grid.computeIfAbsent(new Cell(i, j), k -> new ArrayList<>()).add(particle);
+            grid.computeIfAbsent(new Cell(i, j), _ -> new ArrayList<>()).add(particle);
         }
 
         Map<Particle,List<Particle>> neighbours = new HashMap<>();
@@ -112,7 +98,7 @@ public class Grid {
     }
 
     private static void addUnique(Map<Particle, List<Particle>> neighbours, Particle particle, Particle other) {
-        List<Particle> values = neighbours.computeIfAbsent(particle, k -> new ArrayList<>());
+        List<Particle> values = neighbours.computeIfAbsent(particle, _ -> new ArrayList<>());
         if(!values.contains(other)) {
             values.add(other);
         }

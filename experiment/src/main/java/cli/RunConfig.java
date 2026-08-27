@@ -14,10 +14,9 @@ import java.util.Locale;
  * corridas a ejecutar. Una "corrida" es una combinacion concreta de
  * (modelo, densidad, eta, repeticion); el barrido es simplemente el producto
  * cartesiano de las listas que se pasen por parametro.
- *
  * Los parametros fijos del TP (L=10, v=0.03, rc=1) son los valores por
  * defecto, pero se pueden pisar por CLI para el benchmark del Paso 6 (que
- * necesita comparar contra la geometria del TP1, con L=20).
+ * necesita comparar contra la geometria del TP1, con L=20). <- Comentario: no sé si hace falta cambiar L, quizás solo N manteniendo la densidad
  */
 public class RunConfig {
 
@@ -193,7 +192,6 @@ public class RunConfig {
         return Arrays.stream(raw.split(","))
                 .map(String::trim)
                 .map(s -> Model.valueOf(s.toUpperCase(Locale.ROOT)))
-                .map(m -> (Model) m)
                 .toList();
     }
 

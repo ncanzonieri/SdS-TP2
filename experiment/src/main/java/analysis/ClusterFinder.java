@@ -17,7 +17,7 @@ public final class ClusterFinder {
     private ClusterFinder() {
     }
 
-    /** S = tamano del cluster mas grande / N (fraccion de nodos en la componente gigante). */
+    /** S = tamaño del cluster mas grande / N (fraccion de nodos en la componente gigante). */
     public static double largestClusterFraction(Map<Particle, List<Particle>> neighbors, List<Particle> particles) {
         int n = particles.size();
         if (n == 0) {

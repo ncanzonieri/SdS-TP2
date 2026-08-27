@@ -1,29 +1,24 @@
 package models;
 
-/**
- * Parametros de una corrida de simulacion (Vicsek u Votante). Agrupa todo lo que
- * hoy estaba hardcodeado (L, R, velocidad, semilla) para que Grid y el resto del
- * motor no dependan de constantes sueltas.
- */
 public class SimulationParams {
 
     public enum Model { VICSEK, VOTANTE }
 
     private final int N;
     private final int L;
-    private final double rc;
+    private final double R;
     private final double v;
     private final double noise;
     private final int T;
     private final long seed;
     private final Model model;
 
-    public SimulationParams(int N, int L, double rc, double v, double eta, int T, long seed, Model model) {
+    public SimulationParams(int N, int L, double R, double v, double noise, int T, long seed, Model model) {
         this.N = N;
         this.L = L;
-        this.rc = rc;
+        this.R = R;
         this.v = v;
-        this.noise = eta;
+        this.noise = noise;
         this.T = T;
         this.seed = seed;
         this.model = model;
@@ -46,8 +41,8 @@ public class SimulationParams {
         return L;
     }
 
-    public double getRc() {
-        return rc;
+    public double getR() {
+        return R;
     }
 
     public double getV() {

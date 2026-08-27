@@ -3,7 +3,7 @@ package models;
 import java.util.Objects;
 
 public class Particle {
-    private int id;
+    private final int id;
     private double x;
     private double y;
     private double angle;
@@ -13,14 +13,6 @@ public class Particle {
         this.x = x;
         this.y = y;
         this.angle = angle;
-    }
-
-    public int getId() {
-        return id;
-    }
-
-    public void setId(int id) {
-        this.id = id;
     }
 
     public double getX() {

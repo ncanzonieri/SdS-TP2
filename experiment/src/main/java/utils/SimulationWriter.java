@@ -16,12 +16,9 @@ import java.util.Locale;
  * formato de catedra (Contexto_Teorico/docs/teoria/Teorica_1.md). La animacion
  * y el analisis se corren despues, por separado, tomando estos archivos como
  * input.
- *
  * Genera tres archivos dentro de `outputDir`:
- *
  *   static.txt      metadatos constantes de la corrida, uno por linea:
  *                   N, L, v, rc, eta, T, modelo
- *
  *   dynamic.txt     estado del sistema en cada paso de tiempo:
  *                     t
  *                     x1 y1 vx1 vy1
@@ -35,10 +32,8 @@ import java.util.Locale;
  *                   caracteristicas") pero seria un desperdicio generarlo en
  *                   las ~120 corridas del barrido de eta, que solo necesitan
  *                   observables.txt.
- *
  *   observables.txt una linea por paso de tiempo: `t va S`, con una linea de
  *                   encabezado comentada con '#' (numpy.loadtxt la ignora).
- *
  * IMPORTANTE: todos los numeros se formatean con Locale.ROOT (punto decimal).
  * Sin esto, en una maquina con locale es-AR Java escribiria "0,998" y los
  * scripts de analisis en Python no podrian parsear los archivos.
@@ -70,8 +65,8 @@ public class SimulationWriter implements AutoCloseable {
             writer.write(params.getN() + "\n");
             writer.write(params.getL() + "\n");
             writer.write(format(params.getV()) + "\n");
-            writer.write(format(params.getRc()) + "\n");
-            writer.write(format(params.getEta()) + "\n");
+            writer.write(format(params.getR()) + "\n");
+            writer.write(format(params.getNoise()) + "\n");
             writer.write(params.getT() + "\n");
             writer.write(params.getModel() + "\n");
         }

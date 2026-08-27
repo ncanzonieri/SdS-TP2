@@ -19,7 +19,6 @@ import java.util.stream.Stream;
  * Loop temporal de la simulacion de bandadas (Vicsek/Votante). Cada llamada a
  * step() hace evolucionar sincronicamente todas las particulas un paso de
  * tiempo (dt=1, ver SimulationParams):
- *
  *   1. Busca vecinos dentro de rc via el CIM de Grid.
  *   2. Registra los observables primarios del estado actual (t): polarizacion
  *      `va` (analysis.OrderParameter) y fraccion del cluster mas grande `S`
@@ -29,7 +28,6 @@ import java.util.stream.Stream;
  *      angulo de un vecino al azar, incluyendose a si misma), sumando ruido
  *      R ~ U(-eta/2, eta/2).
  *   4. Actualiza la posicion con modulo v constante y wrap-around periodico.
- *
  * El paso 3 se calcula en un buffer (todas las particulas leen el angulo
  * "congelado" del tick anterior antes de que nadie se mueva) para que la
  * actualizacion sea realmente sincronica y no dependa del orden de iteracion.
@@ -102,7 +100,7 @@ public class SimulationEngine {
             List<Particle> ns = neighbors.getOrDefault(particle, List.of());
             double theta = params.getModel() == Model.VICSEK
                     ? vicsekAngle(particle, ns)
-                    : voterAngle(particle, ns);
+                    : voterAngle(ns);
             newAngles[idx] = theta + noise();
         }
 
@@ -143,7 +141,7 @@ public class SimulationEngine {
 
     /**
      * Modelo estandar de Vicsek: arctan2 del promedio de senos/cosenos de la
-     * propia particula y sus vecinos dentro de rc (Ecuacion 2 del enunciado).
+     * propia particula y sus vecinos dentro de rc.
      */
     private double vicsekAngle(Particle particle, List<Particle> neighbors) {
         return Stream.concat(Stream.of(particle),neighbors.stream())
@@ -155,10 +153,11 @@ public class SimulationEngine {
     }
 
     /**
-     * Modelo de votante: en vez de promediar, copia el angulo de una unica
-     * particula elegida al azar entre vecinos.
+     * Modelo de votante: copia el angulo de un vecino al azar.
      */
-    private double voterAngle(Particle particle, List<Particle> neighbors) {
+    private double voterAngle(List<Particle> neighbors) {
+        if(neighbors.size() == 1)
+            return neighbors.getFirst().getAngle();
         return neighbors.get(random.nextInt(neighbors.size())).getAngle();
     }
 
