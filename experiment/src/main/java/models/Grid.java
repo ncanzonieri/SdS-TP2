@@ -6,6 +6,8 @@ public class Grid {
     private final int N;
     private final int L;
     private final double R;
+    private final int M;
+    private final double cellSize;
     private final List<Particle> particles;
     private final Random random;
 
@@ -13,6 +15,8 @@ public class Grid {
         this.N = params.getN();
         this.L = params.getL();
         this.R = params.getR();
+        this.M = Math.max(1, (int) Math.floor(L / R));
+        this.cellSize = (double) L / M;
         this.particles = new ArrayList<>();
         this.random = new Random(params.getSeed());
     }
@@ -55,22 +59,41 @@ public class Grid {
     public Map<Particle,List<Particle>> nearestNeighbor() {
         Map<Cell,List<Particle>> grid = new HashMap<>();
         for (Particle particle : particles) {
-            int i = (int) (particle.getX() / R);
-            int j = (int) (particle.getY() / R);
+            int i = cellIndex(particle.getX());
+            int j = cellIndex(particle.getY());
             grid.computeIfAbsent(new Cell(i, j), _ -> new ArrayList<>()).add(particle);
         }
 
         Map<Particle,List<Particle>> neighbours = new HashMap<>();
         for(Map.Entry<Cell,List<Particle>> entry : grid.entrySet()) {
+            int ci = entry.getKey().getI();
+            int cj = entry.getKey().getJ();
             Set<Particle> possible = new HashSet<>();
-            possible.addAll(grid.getOrDefault(new Cell((entry.getKey().getI() + 1) % L , entry.getKey().getJ()), new ArrayList<>()));
-            possible.addAll(grid.getOrDefault(new Cell((entry.getKey().getI() + 1) % L , (entry.getKey().getJ() + 1) % L), new ArrayList<>()));
-            possible.addAll(grid.getOrDefault(new Cell(entry.getKey().getI() , (entry.getKey().getJ() + 1) % L), new ArrayList<>()));
-            possible.addAll(grid.getOrDefault(new Cell((entry.getKey().getI() + L - 1) % L , (entry.getKey().getJ() + 1) % L), new ArrayList<>()));
+            possible.addAll(grid.getOrDefault(new Cell(wrapCell(ci + 1), cj), new ArrayList<>()));
+            possible.addAll(grid.getOrDefault(new Cell(wrapCell(ci + 1), wrapCell(cj + 1)), new ArrayList<>()));
+            possible.addAll(grid.getOrDefault(new Cell(ci, wrapCell(cj + 1)), new ArrayList<>()));
+            possible.addAll(grid.getOrDefault(new Cell(wrapCell(ci - 1), wrapCell(cj + 1)), new ArrayList<>()));
             entry.getValue().forEach(possible::remove);
             cellIndexMethod(neighbours, entry, possible);
         }
         return neighbours;
+    }
+
+    /** Indice de celda en [0, M). cellSize = L/M; M = floor(L/rc). */
+    private int cellIndex(double coord) {
+        int i = (int) (coord / cellSize);
+        if (i < 0) {
+            return 0;
+        }
+        if (i >= M) {
+            return M - 1;
+        }
+        return i;
+    }
+
+    private int wrapCell(int i) {
+        int wrapped = i % M;
+        return wrapped < 0 ? wrapped + M : wrapped;
     }
 
     private void cellIndexMethod(Map<Particle, List<Particle>> neighbours, Map.Entry<Cell, List<Particle>> entry, Set<Particle> possible) {

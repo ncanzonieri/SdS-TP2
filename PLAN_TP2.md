@@ -5,10 +5,10 @@
 - [x] Paso 1 — Modelo de datos y parametrización (compilado y verificado con smoke tests de CIM)
 - [x] Paso 2 — Motor de actualización (Vicsek + Votante, ruido, wrap-around) (compilado y verificado con smoke tests de orden/desorden/consenso/wrap-around)
 - [x] Paso 3 — Observables por paso: polarización `va(t)` y clusters `S(t)` (compilado y verificado con smoke tests de la serie temporal y del Union-Find sobre un grafo conocido)
-- [ ] Paso 3 — Observables por paso: polarización `va(t)` y clusters `S(t)`
-- [ ] Paso 4 — Persistencia: archivos de salida (estático / dinámico / observables)
-- [ ] Paso 5 — CLI / configuración de corridas y barrido de η
-- [ ] Paso 6 — Benchmark del CIM (punto g) + limpieza final y empaquetado
+- [x] Paso 4 — Persistencia: archivos de salida (estático / dinámico / observables)
+- [x] Paso 5 — CLI / configuración de corridas y barrido de η
+- [x] Paso 6 — Benchmark del CIM (punto g): `Main --cim-benchmark` escribe tiempos de `nearestNeighbor()` aislados de I/O
+- [ ] Zip de entrega (`experiment/` sin `target/`, `.git`, `Contexto_Teorico/`, outputs)
 
 Cuando termines un paso: tildalo, hacé commit (mensaje `TP2 paso N: ...`), pusheá, y avisá al grupo. El siguiente en sentarse arranca leyendo el "Qué encontrás al llegar" del paso que sigue.
 
@@ -16,7 +16,7 @@ Cuando termines un paso: tildalo, hacé commit (mensaje `TP2 paso N: ...`), push
 
 El TP2 pide implementar el algoritmo de bandadas de Vicsek (off-lattice) en una caja `L=10` con contorno periódico, para tres densidades `ρ = 2, 4, 8` (`N = 200, 400, 800`), comparando el modelo estándar (promedio de ángulos de vecinos) contra el modelo de votante (copia el ángulo de un vecino al azar), ambos con ruido `η`. Además hay que calcular y exportar dos observables por paso temporal — la polarización `va` y el tamaño relativo del cluster más grande `S` — y comparar los tiempos de ejecución del Cell Index Method (CIM) contra los medidos en el TP1.
 
-Ya existe en `experiment/` (Java/Maven) un esqueleto reutilizable del TP1: `Particle` (id, x, y, angle), `Grid` (con un CIM funcional de vecinos con contorno periódico, aunque originalmente con `L` y `R` hardcodeados como `10`/`1.0`), un prototipo incompleto original de `simulateTick()`/`viscek()` (sin ruido, sin wrap-around, velocidad hardcodeada en `10` en vez de `0.03`, sin variante votante — **ya reemplazado por `core/SimulationEngine.java` en el Paso 2**, ver más abajo), y un `CsvWriter` que solo escribe una foto estática. `Main.java` hoy solo genera partículas al azar y las vuelca a un CSV; todavía no invoca el loop de simulación (`SimulationEngine`) — eso es Paso 5. La carpeta `Contexto_Teorico/docs/` del repo ya tiene, en Markdown, el enunciado completo y las ecuaciones exactas (`Contexto_Teorico/docs/tp/TP2_Enunciado.md`, `Contexto_Teorico/docs/teoria/Teorica_2.md`, `Contexto_Teorico/docs/teoria/Teorica_1.md` para el CIM) — son la referencia normativa por sobre cualquier otra nota.
+Ya existe en `experiment/` (Java/Maven) el motor de simulación: `Particle`, `Grid` (CIM con `M = floor(L/rc)` y wrap `% M`), `SimulationEngine` (Vicsek + votante), persistencia en `SimulationWriter`, CLI en `Main`/`RunConfig`, y `benchmark/CimBenchmark` (punto g). `Main` invoca el engine (Paso 5) y acepta `--cim-benchmark` (Paso 6). La carpeta `Contexto_Teorico/docs/` del repo ya tiene, en Markdown, el enunciado completo y las ecuaciones exactas (`Contexto_Teorico/docs/tp/TP2_Enunciado.md`, `Contexto_Teorico/docs/teoria/Teorica_2.md`, `Contexto_Teorico/docs/teoria/Teorica_1.md` para el CIM) — son la referencia normativa por sobre cualquier otra nota.
 
 **Aclaración del profesor por mail (no está en el enunciado escrito, prevalece sobre él):** las densidades `ρ = 2, 4, 8` (`N = 200, 400, 800`) son para todo el estudio general (animaciones, `va` vs `η`, etc.). **Solo para el estudio de clusters** (punto d del enunciado: `S` vs tiempo y `S` vs `η`) hay que extender el barrido a tres densidades adicionales, más bajas: `ρ = 1/π, 1/(2π), 1/(3π)` → `N = 32, 16, 11` (con `L=10`, `N=ρ·L²`, redondeado). Estos son exactamente los valores que ya estaban anotados en el `README.md` del repo (N=11,16,32,200,400,800) — no era un borrador descartado, era esta extensión específica para clusters. El motor debe poder correr con cualquiera de las 6 densidades sin distinguir "modo cluster" a nivel de código — la distinción de qué densidades usar para qué estudio es una decisión de qué corridas lanzar, no del motor en sí.
 
@@ -35,7 +35,7 @@ Decisiones ya tomadas (no reabrir sin razón):
 **Qué se hizo:**
 - `models/Particle.java`: se agregó `hashCode()` consistente con el `equals()` actual (antes solo comparaba `id` y se usaba como key de `HashMap`/`HashSet` en `Grid` sin `hashCode()` — bug latente corregido). Se agregaron helpers `vx(v)`/`vy(v)` para la velocidad vectorial (dado el módulo constante `v`, que vive en `SimulationParams`, no en cada partícula).
 - Nueva clase `models/SimulationParams.java`: agrupa `N`, `L`, `rc`, `v`, `eta`, `T` (pasos de tiempo), `seed`, y un enum `Model { VICSEK, VOTANTE }`, más un factory `nFromDensity(rho, L)` para las 6 densidades del TP. Este objeto viaja por todo el motor en vez de constantes sueltas.
-- `models/Grid.java`: los `static final` de `L`/`R` pasaron a ser campos de instancia recibidos vía `SimulationParams` en el constructor. Se eliminó el campo `matrix` (grilla unitaria de TP1, código muerto que no se usaba en `nearestNeighbor()`). De paso se corrigió un bug latente: el cálculo de celdas del CIM asumía `M == L` (válido solo si `rc==1`); ahora calcula `M = floor(L/rc)` y `cellSize = L/M` correctamente, así que el CIM sigue siendo válido con cualquier `rc` (relevante para el benchmark del Paso 6, que compara contra TP1 con `L=20`).
+- `models/Grid.java`: los `static final` de `L`/`R` pasaron a ser campos de instancia recibidos vía `SimulationParams` en el constructor. Se eliminó el campo `matrix` (grilla unitaria de TP1, código muerto que no se usaba en `nearestNeighbor()`). El commit de Paso 1 *afirmó* `M = floor(L/rc)`, pero el wrap de celdas siguió usando `% L` e índice `x/R` (correcto solo si `rc=1`). Eso se corrigió después: `M = max(1, floor(L/rc))`, `cellSize = L/M`, bin `floor(x/cellSize)` clamp a `[0,M)`, wrap de vecinos con `% M`. El CIM vale para cualquier `rc` (Paso 6, geometría TP1 `L=20`).
 - `Random` centralizado como campo de `Grid`, sembrado con `params.getSeed()` (runs reproducibles).
 - `Main.java`: cambio mínimo para compilar contra el nuevo constructor de `Grid` (arma un `SimulationParams` con los valores que antes estaban hardcodeados). **No** se tocó el resto de `Main` ni `simulateTick()`/`viscek()` — eso es Paso 2/5.
 
@@ -50,7 +50,7 @@ Decisiones ya tomadas (no reabrir sin razón):
 **Qué se hizo:**
 - Nueva clase `core/SimulationEngine.java`, con `step()` (un tick) y `run(steps)` (loop de `steps` ticks). Reemplaza por completo el prototipo `viscek()`/`simulateTick()` que tenía `Grid` (eliminado — Grid vuelve a ocuparse solo del modelo de datos y el CIM).
 - **Vicsek:** `θ(t+1) = atan2(⟨sin θ⟩r, ⟨cos θ⟩r) + R`, promedio incluyendo a la propia partícula.
-- **Votante:** se sortea un índice uniforme en `{i} ∪ vecinos(i)` (tamaño `neighbors.size()+1`) y se copia ese ángulo; si sale el último índice, se queda con el propio.
+- **Votante:** copia el ángulo de un vecino al azar **distinto de sí misma** (el CIM no incluye self). Si no hay vecinos, se queda con el ángulo propio y después se suma el ruido. (El texto viejo de este plan que sorteaba en `{i} ∪ vecinos(i)` no es la regla del enunciado ni de Loscar; el código nunca lo hizo así.)
 - `R = U(-η/2, η/2)` sumado en ambos casos (antes no existía ruido en el código).
 - Posición: `x_i(t+1) = x_i(t) + v·cos(θ(t+1))`, igual para `y`, usando `v` de `SimulationParams` (ya no el `10` hardcodeado), con wrap-around `x % L` corrigiendo negativos.
 - **Sincronía:** `step()` primero calcula todos los ángulos nuevos en un array (`newAngles`, usando el estado congelado del tick anterior) y recién después muta posiciones/ángulos — ya no hay riesgo de que una partícula lea el ángulo ya actualizado de otra en el mismo tick.
@@ -62,7 +62,7 @@ Decisiones ya tomadas (no reabrir sin razón):
 - Votante con `η=0` y ángulo inicial idéntico en todas las partículas: `va=1.000000` exacto (consenso trivial correcto).
 - Wrap-around: partícula en `x=9.99` moviéndose en `+x` con `v=0.03` reaparece en `x≈0.02` (contorno periódico correcto).
 
-**Qué encontrás al llegar (para quien siga con el Paso 3):** `SimulationEngine(grid, params).run(T)` hace evolucionar correctamente `N` partículas por `T` pasos con el modelo elegido, ruido y contorno periódico. `step()` está pensado para llamarse desde un loop externo y engancharle el cálculo de observables (Paso 3) y la persistencia (Paso 4) después de cada tick — hoy no hace ninguna de las dos cosas todavía. `Main.java` sigue sin invocar el engine (eso es Paso 5).
+**Qué encontrás al llegar (para quien siga con el Paso 3):** `SimulationEngine(grid, params).run(T)` hace evolucionar correctamente `N` partículas por `T` pasos con el modelo elegido, ruido y contorno periódico. `step()` registra observables y, si hay writer, persiste el frame. `Main` ya invoca el engine (Paso 5).
 
 ## Paso 3 — Observables por paso: polarización `va(t)` y clusters `S(t)` ✅ IMPLEMENTADO
 
@@ -84,45 +84,29 @@ Decisiones ya tomadas (no reabrir sin razón):
 
 **Qué encontrás al llegar (para quien siga con el Paso 4):** `engine.run(T)` (o `step()` en loop propio) ya deja en `engine.getObservables()` la serie completa `(t, va, S)` además del estado de las partículas — solo falta persistir todo esto (posiciones/velocidades y la serie de observables) en disco con el formato correcto.
 
-## Paso 4 — Persistencia: archivos de salida (estático / dinámico / observables)
+## Paso 4 — Persistencia: archivos de salida (estático / dinámico / observables) ✅ IMPLEMENTADO
 
 **Objetivo:** que el motor escriba en disco, en el formato de cátedra (`Contexto_Teorico/docs/teoria/Teorica_1.md`), los archivos que después va a consumir el módulo de animación (independiente, fuera de este alcance) y los que se van a graficar para los observables.
 
-**Qué hacer:**
-- Extender `utils/CsvWriter.java` (o dividir en clases más chicas si se prefiere) con:
-  - **Archivo estático** (una vez por corrida): `N`, `L` (no hace falta radio/color por partícula — son puntuales y se colorean por ángulo, que es dinámico).
-  - **Archivo dinámico** (una vez por tick, append o un archivo por tick a elección — el enunciado acepta ambos formatos, ver `Contexto_Teorico/docs/tp/TP1_Enunciado.md` punto 5): por cada partícula, `x y vx vy` (con `vx = v·cos θ`, `vy = v·sin θ`), precedido por una línea de encabezado con el tiempo `t`.
-  - **Archivo de observables:** una línea por tick, `t va S`.
-- Definir nombres/ubicación de archivos de salida de forma que no se pisen entre corridas distintas (esto se termina de resolver con el esquema de parámetros del Paso 5, pero dejar la firma del writer ya pensada para recibir una carpeta/prefijo de salida como parámetro).
-- Enganchar esta escritura al loop del Paso 2/3: al final de cada tick, volcar el frame dinámico y la línea de observables; al principio de la corrida, volcar el estático.
+**Qué se hizo:** `utils/SimulationWriter.java` (reemplaza `CsvWriter`) escribe en `outputDir`:
+- `static.txt`: solo `N` luego `L` (sin radio/color ni extra params que un parser de cátedra leería como propiedades de partícula).
+- `dynamic.txt` (si `writeDynamic`): bloques `t` + `x y vx vy` por partícula, `vx=v·cosθ`, `vy=v·sinθ`, `Locale.ROOT`.
+- `observables.txt`: `# t va S` y una línea `t va S` por muestra.
+`SimulationEngine` vuelca frame + observables en cada `recordObservables` (incluye `t=0` y el estado final de `run()`). `Main` pasa `--dynamic` para generar `dynamic.txt`; por defecto solo static+observables.
 
-**Archivos:** `experiment/src/main/java/utils/CsvWriter.java` (extender), enganche en `core/SimulationEngine.java`.
-
-**Qué encontrás al llegar (para quien siga con el Paso 5):** correr una simulación de punta a punta (con parámetros todavía hardcodeados en el código) ya genera en disco los 3 archivos de texto plano completos y con el formato correcto — falta exponer los parámetros desde afuera.
-
-## Paso 5 — CLI / configuración de corridas y barrido de η
+## Paso 5 — CLI / configuración de corridas y barrido de η ✅ IMPLEMENTADO
 
 **Objetivo:** que `Main.java` permita elegir densidad (`ρ`→`N`), `η`, modelo (Vicsek/Votante), `T`, semilla y carpeta de salida sin tocar código, y facilitar correr varias corridas (barrido de `η`) en una sola invocación.
 
-**Qué hacer:**
-- `Main.java`: reemplazar el `args[0]` único actual por parseo de argumentos con nombre (o un archivo de config simple tipo `.properties`/`.txt` — lo que sea más simple de mantener) que arme un `SimulationParams` completo: `rho` (o `N` directo — debe aceptar tanto las densidades altas `2,4,8` como las bajas `1/π, 1/(2π), 1/(3π)` del estudio de clusters, sin tratamiento especial de código para ninguna), `L=10` fijo, `v=0.03` fijo, `rc=1` fijo, `eta`, `model`, `T`, `seed`, carpeta/prefijo de salida.
-- Soporte para barrido: aceptar una lista de valores de `η` (separados por coma, o un rango `desde:hasta:paso`) y, opcionalmente, una lista de valores de `ρ`/`N`, y correr una simulación completa por cada combinación, cada una con su propia carpeta/prefijo de salida derivado de los parámetros (ej. `out/vicsek_rho2_eta0.50/`, `out/vicsek_rho0.3183_eta0.50/`).
-- Dejar un modo de ejecución "una corrida" simple (para debug rápido) y un modo "barrido" (para generar todos los datos que van a necesitar los gráficos, aunque los gráficos en sí no son parte de este plan).
+**Qué se hizo:** `cli/RunConfig.java` parsea `--model/--rho/--N/--eta/--T/--repeats/--seed/--out/--dynamic/--L/--v/--rc`. Listas por coma o rango `desde:hasta:paso`. Producto cartesiano modelo×densidad×eta×repetición; carpeta `out/{model}_rho{ρ}_eta{η}_T{T}_seed{seed}[_r{k}]`. `--help` imprime `USAGE`. `mvn -f experiment/pom.xml exec:java -Dexec.args="..."`.
 
-**Archivos:** `experiment/src/main/java/Main.java` (reescribir), eventualmente nueva clase `cli/RunConfig.java` si el parseo se pone largo.
-
-**Qué encontrás al llegar (para quien siga con el Paso 6):** se puede invocar el jar/clase `Main` con parámetros reales (ej. `mvn compile exec:java -Dexec.args="--rho 4 --eta 0.1,0.5,1.0,2.0 --model vicsek --T 500"`) y obtener carpetas de salida con los 3 archivos por cada combinación.
-
-## Paso 6 — Benchmark del CIM (punto g) + limpieza final y empaquetado
+## Paso 6 — Benchmark del CIM (punto g) ✅ IMPLEMENTADO (zip pendiente)
 
 **Objetivo:** cubrir el punto (g) del enunciado (medir tiempos de ejecución del CIM y dejarlos listos para comparar con el TP1) y dejar el código en condiciones de entregar (sin restos de debug, buildable, empaquetable en el zip pedido).
 
-**Qué hacer:**
-- Instrumentar el llamado a `nearestNeighbor()` con timing (`System.nanoTime()`), aislado de la escritura a disco (medir solo la búsqueda de vecinos, no I/O). Agregar un modo de ejecución (flag en `Main` o clase separada `benchmark/CimBenchmark.java`) que corra el CIM repetidas veces para valores de `N` similares a los usados en el TP1 (ver `Contexto_Teorico/docs/tp/TP1_Enunciado.md`, punto 4: al menos 10 valores de `N` entre 10 y el máximo posible) y vuelque `N, tiempo_promedio, desvío` a un archivo de texto — mismo formato que usaron para no tener que rehacer el análisis comparativo a mano.
-- Limpieza final: repasar que no quede código muerto (verificar que no reaparecieron restos del `matrix` eliminado en el Paso 1), que `Particle.equals`/`hashCode` sigan consistentes, que `pom.xml` compile y corra (`mvn compile exec:java`) sin dependencias faltantes, y que no haya prints de debug olvidados.
-- Preparar el *.zip de entrega: solo el código fuente final del motor (`experiment/`), sin `target/`, sin outputs de simulaciones, sin `.git`, sin `Contexto_Teorico/`.
+**Qué se hizo:** `benchmark/CimBenchmark.java` + `Main --cim-benchmark`. Solo `nearestNeighbor()` (`System.nanoTime()`), sin writer. Defaults `L=20`, `rc=1`, ≥10 valores de N, 200 reps tras warmup. Dos series: `cim_times_L20.txt` (L fijo) y `cim_times_rho_fixed.txt` (ρ fijo, L crece con N). `pom.xml` tiene `exec-maven-plugin` (`mainClass` Main).
 
-**Archivos:** nueva `experiment/src/main/java/benchmark/CimBenchmark.java` (o método adicional en `Main`), revisión general de todo `experiment/src`.
+**Pendiente (fuera de este pass):** zip de entrega — solo `experiment/` fuente, sin `target/`, outputs, `.git`, `Contexto_Teorico/`.
 
 ## Verificación end-to-end (para cualquiera que retome el trabajo)
 

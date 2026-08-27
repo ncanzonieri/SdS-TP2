@@ -32,6 +32,11 @@ public class RunConfig {
     private int repeats = 1;
     private Path outDir = Path.of("out");
     private boolean writeDynamic = false;
+    private boolean cimBenchmark = false;
+    private boolean lExplicit = false;
+    private boolean rcExplicit = false;
+    private boolean repeatsExplicit = false;
+    private boolean outExplicit = false;
     private List<Double> rhos = List.of(2.0, 4.0, 8.0);
     private List<Integer> explicitNs = null;
     private List<Double> etas = parseNumberList("0:6:0.5");
@@ -55,6 +60,7 @@ public class RunConfig {
               --L <int>         lado de la caja                                (10)
               --v <double>      modulo de la velocidad                         (0.03)
               --rc <double>     radio de interaccion                           (1.0)
+              --cim-benchmark   solo tiempos del CIM (punto g); no simula      (desactivado)
               --help            muestra esta ayuda
 
             Las <lista> aceptan valores separados por coma (0.1,0.5,2) o un rango
@@ -74,6 +80,9 @@ public class RunConfig {
 
               # densidades bajas del estudio de clusters
               java -cp target/classes Main --N 11,16,32 --eta 0:6:0.5 --T 500
+
+              # tiempos del CIM (L=20, rc=1 por defecto; no escribe frames)
+              java -cp target/classes Main --cim-benchmark
             """;
 
     /** Devuelve null si se pidio --help (el caller debe imprimir USAGE y salir). */
@@ -86,18 +95,31 @@ public class RunConfig {
                     return null;
                 }
                 case "--dynamic" -> config.writeDynamic = true;
+                case "--cim-benchmark" -> config.cimBenchmark = true;
                 case "--model" -> config.models = parseModels(next(args, ++i, arg));
                 case "--rho" -> config.rhos = parseNumberList(next(args, ++i, arg));
                 case "--N" -> config.explicitNs = parseNumberList(next(args, ++i, arg))
                         .stream().map(Double::intValue).toList();
                 case "--eta" -> config.etas = parseNumberList(next(args, ++i, arg));
                 case "--T" -> config.T = Integer.parseInt(next(args, ++i, arg));
-                case "--repeats" -> config.repeats = Integer.parseInt(next(args, ++i, arg));
+                case "--repeats" -> {
+                    config.repeats = Integer.parseInt(next(args, ++i, arg));
+                    config.repeatsExplicit = true;
+                }
                 case "--seed" -> config.seed = Long.parseLong(next(args, ++i, arg));
-                case "--out" -> config.outDir = Path.of(next(args, ++i, arg));
-                case "--L" -> config.L = Integer.parseInt(next(args, ++i, arg));
+                case "--out" -> {
+                    config.outDir = Path.of(next(args, ++i, arg));
+                    config.outExplicit = true;
+                }
+                case "--L" -> {
+                    config.L = Integer.parseInt(next(args, ++i, arg));
+                    config.lExplicit = true;
+                }
                 case "--v" -> config.v = Double.parseDouble(next(args, ++i, arg));
-                case "--rc" -> config.rc = Double.parseDouble(next(args, ++i, arg));
+                case "--rc" -> {
+                    config.rc = Double.parseDouble(next(args, ++i, arg));
+                    config.rcExplicit = true;
+                }
                 default -> throw new IllegalArgumentException(
                         "Argumento desconocido: " + arg + " (usa --help para ver las opciones)");
             }
@@ -157,7 +179,7 @@ public class RunConfig {
                         long runSeed = seed + 31L * r;
                         SimulationParams params =
                                 new SimulationParams(n, L, rc, v, eta, T, runSeed, model);
-                        runs.add(new PlannedRun(params, outDir.resolve(dirName(model, n, eta, r))));
+                        runs.add(new PlannedRun(params, outDir.resolve(dirName(model, n, eta, r, runSeed))));
                     }
                 }
             }
@@ -170,10 +192,10 @@ public class RunConfig {
      * distintas nunca se pisen. La densidad va en el nombre (no N) porque es lo
      * que se grafica; con --N se recalcula rho = N/L^2 para mantenerlo legible.
      */
-    private String dirName(Model model, int n, double eta, int repeat) {
+    private String dirName(Model model, int n, double eta, int repeat, long runSeed) {
         double rho = (double) n / (L * L);
-        String name = String.format(Locale.ROOT, "%s_rho%s_eta%s",
-                model.name().toLowerCase(Locale.ROOT), fmt(rho), fmt(eta));
+        String name = String.format(Locale.ROOT, "%s_rho%s_eta%s_T%d_seed%d",
+                model.name().toLowerCase(Locale.ROOT), fmt(rho), fmt(eta), T, runSeed);
         return repeats > 1 ? name + "_r" + repeat : name;
     }
 
@@ -230,7 +252,43 @@ public class RunConfig {
         return writeDynamic;
     }
 
+    public boolean isCimBenchmark() {
+        return cimBenchmark;
+    }
+
     public Path getOutDir() {
         return outDir;
+    }
+
+    public int getL() {
+        return L;
+    }
+
+    public double getRc() {
+        return rc;
+    }
+
+    public int getRepeats() {
+        return repeats;
+    }
+
+    public List<Integer> getExplicitNs() {
+        return explicitNs;
+    }
+
+    public boolean isLExplicit() {
+        return lExplicit;
+    }
+
+    public boolean isRcExplicit() {
+        return rcExplicit;
+    }
+
+    public boolean isRepeatsExplicit() {
+        return repeatsExplicit;
+    }
+
+    public boolean isOutExplicit() {
+        return outExplicit;
     }
 }

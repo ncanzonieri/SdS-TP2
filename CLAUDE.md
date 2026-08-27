@@ -13,12 +13,14 @@ Este archivo es el punto de entrada de contexto para Claude Code en este reposit
 
 El plan de implementación paso a paso vive en `PLAN_TP2.md` (raíz del repo) — es la guía para el equipo: cada paso se hace, se commitea, se pushea, y el siguiente en sentarse sigue desde ahí.
 
-- [x] **Paso 1 — Modelo de datos y parametrización.** `Grid`/`Particle` ya no tienen `L`/`R` hardcodeados; se agregó `SimulationParams` (agrupa N, L, rc, v, eta, T, seed, modelo) y se corrigió un bug de `equals`/`hashCode` en `Particle` y un bug latente del cálculo de celdas del CIM (asumía `M==L`, ahora `M=floor(L/rc)`). Detalle completo en `PLAN_TP2.md`.
-- [x] **Paso 2 — Motor de actualización (Vicsek + Votante, ruido, wrap-around).** Nueva clase `core/SimulationEngine.java` (`step()`/`run(T)`) reemplaza el prototipo `viscek()`/`simulateTick()` de `Grid` (eliminado): actualización síncrona vía buffer, ruido `U(-η/2,η/2)` en ambos modelos, posición con `v` real y wrap-around periódico. Verificado con smoke tests (orden con η=0, desorden con η alto, consenso del votante, wrap-around). `Main` todavía no invoca el engine — eso es Paso 5. Detalle completo en `PLAN_TP2.md`.
-- [x] **Paso 3 — Observables por paso (`va`, clusters `S`).** Nuevas `analysis/OrderParameter.java` (polarización) y `analysis/ClusterFinder.java` (Union-Find sobre los vecinos del CIM). `SimulationEngine` ahora registra `(t, va, S)` en cada `step()` (reusando los vecinos ya calculados, sin duplicar el CIM) y expone la serie completa vía `getObservables()`. Verificado con smoke tests (tamaño de la serie, densidad alta/baja, y un grafo de vecinos armado a mano para el Union-Find). Detalle completo en `PLAN_TP2.md`.
-- [ ] Paso 4 — Persistencia (archivos de salida) — **siguiente paso a implementar.**
-- [ ] Paso 5 — CLI / barrido de η
-- [ ] Paso 6 — Benchmark del CIM + limpieza final
+- [x] **Paso 1 — Modelo de datos y parametrización.** `Grid`/`Particle` ya no tienen `L`/`R` hardcodeados; se agregó `SimulationParams`. `Particle.equals`/`hashCode` consistentes. CIM: `M = floor(L/rc)`, `cellSize = L/M`, wrap de celdas `% M` (el wrap `% L` del commit original de Paso 1 solo era correcto con `rc=1`).
+- [x] **Paso 2 — Motor de actualización (Vicsek + Votante, ruido, wrap-around).** `SimulationEngine`: actualización síncrona, ruido `U(-η/2,η/2)`, posición con `v` y wrap-around, movimiento con `θ(t+1)`. Votante copia un vecino ajeno; si no hay vecinos, conserva el ángulo propio (no crashea).
+- [x] **Paso 3 — Observables por paso (`va`, clusters `S`).** `OrderParameter` + `ClusterFinder`; serie `(t, va, S)` vía `getObservables()`.
+- [x] **Paso 4 — Persistencia.** `SimulationWriter`: `static.txt` (`N`, `L`), `dynamic.txt` (`t` + `x y vx vy`), `observables.txt` (`t va S`).
+- [x] **Paso 5 — CLI / barrido de η.** `Main` + `RunConfig`; carpetas `model_rho_eta_T_seed`.
+- [x] **Paso 6 — Benchmark del CIM (punto g).** `Main --cim-benchmark` → `out/cim/cim_times_L20.txt` y `cim_times_rho_fixed.txt`. Zip de entrega todavía no.
+
+Siguiente trabajo fuera del motor Java: animaciones, gráficos b–e, informe y presentación. El zip de entrega del código queda para el cierre.
 
 Cuando trabajes conmigo (Claude Code) en este repo para el TP2, priorizá siempre lo que dice `Contexto_Teorico/docs/tp/TP2_Enunciado.md` (enunciado + parámetros del grupo) y las ecuaciones exactas en `Contexto_Teorico/docs/teoria/Teorica_2.md`, `Contexto_Teorico/docs/papers/NovelTypePhaseTransition2_Vicsek1995.md` y `Contexto_Teorico/docs/papers/PhysRevE104_034111_Loscar2021_VoterModel.md`.
 
@@ -43,15 +45,17 @@ SdS-TP2/
         ├── Main.java
         ├── analysis/OrderParameter.java
         ├── analysis/ClusterFinder.java
+        ├── benchmark/CimBenchmark.java
+        ├── cli/RunConfig.java
         ├── core/SimulationEngine.java
         ├── core/ObservableSample.java
         ├── models/Grid.java
         ├── models/Particle.java
         ├── models/SimulationParams.java
-        └── utils/CsvWriter.java
+        └── utils/SimulationWriter.java
 ```
 
-**Importante:** `experiment/` ya es un proyecto Maven/Java existente y con historial de git — no hay que reescribirlo desde cero, sino extender lo que ya está armado (`Grid`, `Particle`, `CsvWriter`, `Main`).
+**Importante:** `experiment/` ya es un proyecto Maven/Java existente y con historial de git — no hay que reescribirlo desde cero, sino extender lo que ya está armado (`Grid`, `Particle`, `SimulationWriter`, `Main`).
 
 ## Índice de `Contexto_Teorico/docs/`
 

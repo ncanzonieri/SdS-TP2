@@ -25,7 +25,8 @@ import java.util.stream.Stream;
  *      (analysis.ClusterFinder), reusando los mismos vecinos del CIM.
  *   3. Calcula el nuevo angulo de cada particula segun el modelo elegido
  *      (Vicsek: promedio circular de si misma + vecinos; Votante: copia el
- *      angulo de un vecino al azar, incluyendose a si misma), sumando ruido
+ *      angulo de un vecino al azar, sin incluirse; si no hay vecinos se
+ *      queda con el propio), sumando ruido
  *      R ~ U(-eta/2, eta/2).
  *   4. Actualiza la posicion con modulo v constante y wrap-around periodico.
  * El paso 3 se calcula en un buffer (todas las particulas leen el angulo
@@ -64,8 +65,8 @@ public class SimulationEngine {
 
     /**
      * Serie temporal (t, va, S) acumulada hasta ahora - un elemento por cada
-     * estado registrado (uno por step(), mas el estado final de run()). La
-     * persistencia a disco (Paso 4) va a leer esta lista.
+     * estado registrado (uno por step(), mas el estado final de run()). Cada
+     * muestra se persiste en el mismo instante via el writer (si no es null).
      */
     public List<ObservableSample> getObservables() {
         return observables;
@@ -100,7 +101,7 @@ public class SimulationEngine {
             List<Particle> ns = neighbors.getOrDefault(particle, List.of());
             double theta = params.getModel() == Model.VICSEK
                     ? vicsekAngle(particle, ns)
-                    : voterAngle(ns);
+                    : voterAngle(particle, ns);
             newAngles[idx] = theta + noise();
         }
 
@@ -128,6 +129,12 @@ public class SimulationEngine {
         recordObservables(grid.getParticles(), grid.nearestNeighbor());
     }
 
+    /**
+     * Registra (t, va, S) del estado actual y, si hay writer, vuelca el frame
+     * dinamico y la linea de observables de ese mismo t. Se llama desde step()
+     * ANTES de mutar particulas y desde sampleObservables() para el estado
+     * final de run(); writer == null es no-op (tests/benchmark).
+     */
     private void recordObservables(List<Particle> particles, Map<Particle, List<Particle>> neighbors) {
         double va = OrderParameter.polarization(particles);
         double s = ClusterFinder.largestClusterFraction(neighbors, particles);
@@ -153,11 +160,14 @@ public class SimulationEngine {
     }
 
     /**
-     * Modelo de votante: copia el angulo de un vecino al azar.
+     * Modelo de votante: copia el angulo de un vecino al azar (no se incluye
+     * a si misma). Sin vecinos, se queda con el angulo propio; el ruido se
+     * suma afuera.
      */
-    private double voterAngle(List<Particle> neighbors) {
-        if(neighbors.size() == 1)
-            return neighbors.getFirst().getAngle();
+    private double voterAngle(Particle particle, List<Particle> neighbors) {
+        if (neighbors.isEmpty()) {
+            return particle.getAngle();
+        }
         return neighbors.get(random.nextInt(neighbors.size())).getAngle();
     }
 

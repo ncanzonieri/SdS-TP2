@@ -12,31 +12,24 @@ import java.util.List;
 import java.util.Locale;
 
 /**
- * Escribe a disco los archivos de texto plano de una corrida, siguiendo el
- * formato de catedra (Contexto_Teorico/docs/teoria/Teorica_1.md). La animacion
+ * Escribe a disco los archivos de texto plano de una corrida. La animacion
  * y el analisis se corren despues, por separado, tomando estos archivos como
  * input.
- * Genera tres archivos dentro de `outputDir`:
- *   static.txt      metadatos constantes de la corrida, uno por linea:
- *                   N, L, v, rc, eta, T, modelo
- *   dynamic.txt     estado del sistema en cada paso de tiempo:
+ * Genera hasta tres archivos dentro de `outputDir` (una carpeta por corrida
+ * para que no se pisen):
+ *   static.txt      exactamente dos lineas: N, luego L. Nada mas: no radio
+ *                   ni color por particula, ni v/rc/eta/T/modelo (un parser de
+ *                   catedra los leeria como propiedades de particula).
+ *   dynamic.txt     un bloque por tick:
  *                     t
  *                     x1 y1 vx1 vy1
  *                     ...
  *                     xN yN vxN vyN
- *                   (el nro. de fila dentro de cada bloque es la identidad de
- *                   la particula, como pide el formato de catedra)
- *                   Solo se genera si writeDynamic == true, porque pesa ~14 MB
- *                   por corrida con N=800/T=500: hace falta para las
- *                   animaciones (punto a del enunciado, "pocas situaciones
- *                   caracteristicas") pero seria un desperdicio generarlo en
- *                   las ~120 corridas del barrido de eta, que solo necesitan
- *                   observables.txt.
- *   observables.txt una linea por paso de tiempo: `t va S`, con una linea de
- *                   encabezado comentada con '#' (numpy.loadtxt la ignora).
- * IMPORTANTE: todos los numeros se formatean con Locale.ROOT (punto decimal).
- * Sin esto, en una maquina con locale es-AR Java escribiria "0,998" y los
- * scripts de analisis en Python no podrian parsear los archivos.
+ *                   El orden de filas es el de la lista (identidad estable).
+ *                   vx = v*cos(theta), vy = v*sin(theta).
+ *                   Solo se genera si writeDynamic == true.
+ *   observables.txt una linea por tick: `t va S`, con encabezado `# t va S`.
+ * Todos los doubles se formatean con Locale.ROOT (punto decimal, no coma).
  */
 public class SimulationWriter implements AutoCloseable {
 
@@ -60,15 +53,11 @@ public class SimulationWriter implements AutoCloseable {
         this.observablesWriter.write("# t va S\n");
     }
 
-    private static void writeStatic(Path file, SimulationParams params) throws IOException {
+    /** Escribe static.txt una vez: solo N y L, en ese orden. */
+    public static void writeStatic(Path file, SimulationParams params) throws IOException {
         try (BufferedWriter writer = Files.newBufferedWriter(file)) {
             writer.write(params.getN() + "\n");
             writer.write(params.getL() + "\n");
-            writer.write(format(params.getV()) + "\n");
-            writer.write(format(params.getR()) + "\n");
-            writer.write(format(params.getNoise()) + "\n");
-            writer.write(params.getT() + "\n");
-            writer.write(params.getModel() + "\n");
         }
     }
 
