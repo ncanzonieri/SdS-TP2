@@ -8,6 +8,7 @@
 - [x] Paso 4 — Persistencia: archivos de salida (estático / dinámico / observables)
 - [x] Paso 5 — CLI / configuración de corridas y barrido de η
 - [x] Paso 6 — Benchmark del CIM (punto g): `Main --cim-benchmark` escribe tiempos de `nearestNeighbor()` aislados de I/O
+- [ ] Paso 7 - Animar, graficar y analizar para el informe y la presentación.
 - [ ] Zip de entrega (`experiment/` sin `target/`, `.git`, `Contexto_Teorico/`, outputs)
 
 Cuando termines un paso: tildalo, hacé commit (mensaje `TP2 paso N: ...`), pusheá, y avisá al grupo. El siguiente en sentarse arranca leyendo el "Qué encontrás al llegar" del paso que sigue.
@@ -107,6 +108,20 @@ Decisiones ya tomadas (no reabrir sin razón):
 **Qué se hizo:** `benchmark/CimBenchmark.java` + `Main --cim-benchmark`. Solo `nearestNeighbor()` (`System.nanoTime()`), sin writer. Defaults `L=20`, `rc=1`, ≥10 valores de N, 200 reps tras warmup. Dos series: `cim_times_L20.txt` (L fijo) y `cim_times_rho_fixed.txt` (ρ fijo, L crece con N). `pom.xml` tiene `exec-maven-plugin` (`mainClass` Main).
 
 **Pendiente (fuera de este pass):** zip de entrega — solo `experiment/` fuente, sin `target/`, outputs, `.git`, `Contexto_Teorico/`.
+
+## Pas0 7 - Animar, analizar y graficar
+
+Básicamente, los ítems de la consigna.
+
+a) Videos representativos de muestra donde las partículas son vectores y se colorean según el ángulo.
+
+b) Gráficos representativos de polarización en tiempo para demostrar dónde trazamos la vertical del instante en que llega a un equilibrio.
+
+c) Después de tener varias pasadas por cada combinación ruido-densidad, graficar polarización según ruido incluyendo barra de error por cada densidad.
+
+d) Mismo que b y c con S.
+
+e) Comparar tiempos con el TP1 (campo 10x10, ajustar N de manera que mantenga la densidad original usada en el TP1)
 
 ## Verificación end-to-end (para cualquiera que retome el trabajo)
 
