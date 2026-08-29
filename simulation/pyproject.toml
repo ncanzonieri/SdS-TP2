@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "simulation"
+version = "0.1.0"
+requires-python = ">=3.12"
+readme = "README.md"
+dependencies = [
+    "questionary==2.1.1",
+    "matplotlib==3.11.1",
+    "pandas==3.0.5",
+    "plotly==7.0.0",
+    "pytest==9.1.1",
+    "numpy==2.5.2",
+]
+
+[project.scripts]
+simulation = "src.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["src*"]
+exclude = ["tests*"]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
+addopts = "-q"

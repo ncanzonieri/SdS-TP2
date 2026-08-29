@@ -7,6 +7,7 @@ target/
 # Output de simulaciones (generado por Main/futuros runs, no es codigo fuente)
 experiment/*.csv
 experiment/out/
+/output/
 
 # Log file
 *.log
