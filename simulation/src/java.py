@@ -116,7 +116,7 @@ def run_engine(
     process: JavaProcess | None = None,
     root: Path | None = None,
 ) -> Path:
-    """Run Main with java_args. Injects absolute --out unless already present."""
+    """Compile and run Main. A clean build avoids sharing incompatible classes across OS/JDKs."""
     repo = root or repo_root()
     args = _expand_cli_ranges(list(java_args))
     if not _has_flag(args, "--out"):
@@ -135,6 +135,8 @@ def run_engine(
         "mvn",
         "-f",
         str(pom),
+        "clean",
+        "compile",
         "exec:java",
         f"-Dexec.args={_join_exec_args(args)}",
     ]

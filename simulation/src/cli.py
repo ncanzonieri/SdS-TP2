@@ -34,9 +34,8 @@ from src.plot import (
     select_fig_b_runs,
 )
 
-PRODUCTION_RHOS = "0.3183,0.1592,0.1061,2,4,8"
 GENERAL_RHOS = "2,4,8"
-CLUSTER_RHOS = "0.3183,0.1592,0.1061"
+PRODUCTION_RHOS = GENERAL_RHOS
 PRODUCTION_ETAS = "0:6:0.5"
 TALK_ETAS = "0.5,3.5,6"
 
@@ -64,10 +63,10 @@ def _add_global(p: argparse.ArgumentParser) -> None:
 
 
 def _add_steady(p: argparse.ArgumentParser) -> None:
-    p.add_argument("--window", type=int, default=200, help="ancho de ventana para detectar estacionario")
+    p.add_argument("--window", type=int, default=100, help="ancho de ventana para detectar estacionario")
     p.add_argument("--atol", type=float, default=0.02, help="tolerancia absoluta del detector")
     p.add_argument("--rtol", type=float, default=0.05, help="tolerancia relativa del detector")
-    p.add_argument("--t-min", type=int, default=200, help="primer tiempo posible del estacionario")
+    p.add_argument("--t-min", type=int, default=100, help="primer tiempo posible del estacionario")
     p.add_argument("--sustain", type=int, default=3, help="ventanas estables consecutivas requeridas")
     p.add_argument("--t-onset", type=int, default=None, help="forzar un mismo inicio estacionario")
     p.add_argument("--t-onset-csv", default=None, help="CSV con inicios estacionarios por corrida")
@@ -528,7 +527,7 @@ def _interactive_custom_simulate() -> int:
         default="0:6:0.5",
     ).ask()
     steps = questionary.text(
-        "Pasos T por corrida (500 prueba rápida; 10000 producción):",
+        "Pasos T por corrida (500 en el perfil productivo actual):",
         default="500",
     ).ask()
     repeats = questionary.text(
@@ -585,7 +584,7 @@ def _production_args() -> list[str]:
         "--eta",
         PRODUCTION_ETAS,
         "--T",
-        "10000",
+        "500",
         "--repeats",
         "5",
         "--seed",
@@ -593,18 +592,27 @@ def _production_args() -> list[str]:
     ]
 
 
-def _talk_arg_groups() -> tuple[list[str], list[str]]:
-    common = ["--model", "both", "--T", "2000", "--seed", "1", "--dynamic"]
-    general = ["--rho", GENERAL_RHOS, "--eta", TALK_ETAS, *common]
-    clusters = ["--rho", CLUSTER_RHOS, "--eta", "3.5", *common]
-    return general, clusters
+def _talk_args() -> list[str]:
+    return [
+        "--model",
+        "both",
+        "--rho",
+        GENERAL_RHOS,
+        "--eta",
+        TALK_ETAS,
+        "--T",
+        "2000",
+        "--seed",
+        "1",
+        "--dynamic",
+    ]
 
 
 def _confirm_production() -> bool:
     return bool(
         questionary.confirm(
-            "El barrido completo ejecuta 780 corridas de T=10000 y tarda aproximadamente "
-            "1.5–2 horas. ¿La máquina está lista para continuar?",
+            "El barrido completo ejecuta 390 corridas de T=500. "
+            "¿La máquina está lista para continuar?",
             default=False,
         ).ask()
     )
@@ -613,7 +621,7 @@ def _confirm_production() -> bool:
 def _generate_production_data(*, confirm: bool = True) -> Path | None:
     if confirm and not _confirm_production():
         return None
-    print("Generando barrido productivo: ambos modelos, 6 densidades, 13 ruidos y 5 repeticiones.")
+    print("Generando barrido productivo: ambos modelos, 3 densidades, 13 ruidos y 5 repeticiones.")
     out = run_engine(_production_args())
     print(f"Barrido guardado en: {out}")
     return out
@@ -621,11 +629,8 @@ def _generate_production_data(*, confirm: bool = True) -> Path | None:
 
 def _generate_talk_data() -> Path:
     out = make_batch("simulation", "animaciones")
-    general, clusters = _talk_arg_groups()
-    print("Generando 18 corridas animables para rho={2,4,8}...")
-    run_engine(general, out_dir=out)
-    print("Generando 6 corridas animables para las densidades de clusters...")
-    run_engine(clusters, out_dir=out)
+    print("Generando 18 corridas animables: ambos modelos, rho={2,4,8} y ruido bajo/medio/alto...")
+    run_engine(_talk_args(), out_dir=out)
     print(f"Datos animables guardados en: {out}")
     return out
 
@@ -642,11 +647,11 @@ def _interactive_generate_data() -> int:
         "¿Qué datos querés generar?",
         choices=[
             questionary.Choice(
-                "Barrido completo del TP — 780 corridas, sin dynamic.txt",
+                "Barrido completo del TP — 390 corridas, sin dynamic.txt",
                 value="production",
             ),
             questionary.Choice(
-                "Corridas para animaciones — 24 corridas con dynamic.txt",
+                "Corridas para animaciones — 18 corridas con dynamic.txt",
                 value="talk",
             ),
             questionary.Choice(
@@ -797,9 +802,14 @@ def _interactive_outputs(batch: str | None = None) -> int:
 
 
 def _ask_tp1_csv() -> Path | None:
+    has_tp1 = questionary.confirm(
+        "¿Tenés un archivo CSV con los tiempos medidos en el TP1?",
+        default=False,
+    ).ask()
+    if not has_tp1:
+        return None
     raw = questionary.text(
-        "CSV con tiempos del TP1 para la comparación (Enter para graficar solo TP2):",
-        default="",
+        "Pegá la ruta completa del CSV del TP1:",
     ).ask()
     if not raw:
         return None
@@ -850,7 +860,7 @@ def _existing_assignment_batches() -> tuple[str, str, str] | None:
     if analysis is None:
         return None
     animations = _choose_batch(
-        "Lote de las 24 corridas animables (dynamic.txt):",
+        "Lote de las 18 corridas animables (dynamic.txt):",
         need_dynamic=True,
     )
     if animations is None:

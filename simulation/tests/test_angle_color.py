@@ -7,7 +7,6 @@ from src.animate import (
     AnimateOpts,
     DISPLAY_ARROW_FRAC,
     TALK_ANIMATIONS,
-    TALK_CLUSTER_RHOS,
     TALK_RHOS,
     display_uv,
     match_talk,
@@ -63,30 +62,15 @@ def test_near_cut_close_in_hue():
 
 def test_talk_catalog_size():
     assert TALK_RHOS == (2.0, 4.0, 8.0)
-    assert len(TALK_ANIMATIONS) == 24
+    assert len(TALK_ANIMATIONS) == 18
     etas = {item[2] for item in TALK_ANIMATIONS}
     assert 0.0 not in etas
     assert {0.5, 3.5, 6.0} <= etas
-    general = {
-        (model, rho, eta)
-        for model, rho, eta in TALK_ANIMATIONS
-        if rho in TALK_RHOS
-    }
-    assert general == {
+    assert set(TALK_ANIMATIONS) == {
         (model, rho, eta)
         for model in ("vicsek", "votante")
         for rho in TALK_RHOS
         for eta in (0.5, 3.5, 6.0)
-    }
-    cluster = {
-        (model, rho, eta)
-        for model, rho, eta in TALK_ANIMATIONS
-        if rho not in TALK_RHOS
-    }
-    assert cluster == {
-        (model, rho, 3.5)
-        for model in ("vicsek", "votante")
-        for rho in TALK_CLUSTER_RHOS
     }
 
 
@@ -103,4 +87,4 @@ def test_match_talk_resolves_catalog():
         )
     found, missing = match_talk(pd.DataFrame(rows))
     assert missing == []
-    assert len(found) == 24
+    assert len(found) == 18

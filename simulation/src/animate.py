@@ -22,23 +22,16 @@ from src.io import rho_close
 
 TALK_MODELS = ("vicsek", "votante")
 TALK_RHOS = (2.0, 4.0, 8.0)
-TALK_CLUSTER_RHOS = (1 / math.pi, 1 / (2 * math.pi), 1 / (3 * math.pi))
 ETA_MID = 3.5
 
 
 def talk_catalog(eta_mid: float = ETA_MID) -> tuple[tuple[str, float, float], ...]:
-    general = tuple(
+    return tuple(
         (model, rho, eta)
         for model in TALK_MODELS
         for eta in (0.5, eta_mid, 6.0)
         for rho in TALK_RHOS
     )
-    cluster = tuple(
-        (model, rho, eta_mid)
-        for model in TALK_MODELS
-        for rho in TALK_CLUSTER_RHOS
-    )
-    return general + cluster
 
 
 TALK_ANIMATIONS = talk_catalog()

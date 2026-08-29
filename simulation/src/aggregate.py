@@ -22,10 +22,10 @@ class Onset:
 
 @dataclass
 class Detector:
-    window: int = 200
+    window: int = 100
     atol: float = 0.02
     rtol: float = 0.05
-    t_min: int = 200
+    t_min: int = 100
     sustain: int = 3
 
 

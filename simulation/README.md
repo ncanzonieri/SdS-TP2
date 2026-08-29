@@ -23,7 +23,7 @@ py -3 simulation/main.py
 
 The interactive assistant presents three options:
 
-1. **Generate data.** Choose the frozen production sweep, the 24 animation runs,
+1. **Generate data.** Choose the assignment sweep, the 18 animation runs,
    the CIM benchmark, or a custom simulation. Each result is stored as a
    timestamped batch under `output/simulation/`.
 2. **Generate results from existing data.** Select any combination of animations,
@@ -31,11 +31,11 @@ The interactive assistant presents three options:
    comparison. This stage never reruns the physical simulation.
 3. **Do the complete assignment (a–g).** Choose whether to reuse three existing
    batches (observables, animations, and CIM) or create everything from scratch.
-   Starting from scratch requires confirmation because the frozen sweep is
-   780 runs and takes approximately 1.5–2 hours.
+   Starting from scratch requires confirmation because the sweep contains
+   390 runs. The current production profile uses `T=500`.
 
 `observables.txt` is always written. `dynamic.txt` is generated only for the
-24 characteristic animation runs because it is substantially larger.
+18 characteristic animation runs because it is substantially larger.
 
 The same actions are available as explicit commands:
 
@@ -55,9 +55,12 @@ The old short names (`run`, `fig-b`, `fig-c`, `fig-d`, `fig-e`, `fig-g`,
 Maven is invoked as:
 
 ```
-mvn -f experiment/pom.xml exec:java -Dexec.args=...
+mvn -f experiment/pom.xml clean compile exec:java -Dexec.args=...
 ```
 
 with an absolute `--out` under `output/simulation/<timestamp>/`.
 
-See `PLAN.md` for the frozen production sweep (T=10000, η=0:6:0.5, repeats=5, η_mid=3.5) and the assignment compliance list.
+The current CLI production sweep follows the three assignment densities
+ρ=`2,4,8`, with `T=500`, η=`0:6:0.5`, five repeats and η_mid=`3.5`.
+The stationary-state detector starts at `t=100` and compares windows of 100 samples.
+`PLAN.md` retains the original calibration rationale for the longer run.

@@ -3,13 +3,34 @@ from unittest.mock import patch
 import pandas as pd
 import pytest
 
-from src.plot import CLUSTER_RHOS, draw_d_time, draw_g, filter_rhos
+from src.plot import CLUSTER_RHOS, draw_d_time, draw_g, filter_rhos, select_fig_b_runs
 
 
-def test_filter_rhos_matches_java_n_over_l2():
+def test_cluster_figures_default_to_assignment_densities():
     frame = pd.DataFrame({"rho": [0.32, 0.16, 0.11, 0.3183, 2.0, 99.0]})
     kept = filter_rhos(frame, list(CLUSTER_RHOS))
-    assert sorted(kept["rho"].tolist()) == [0.11, 0.16, 0.3183, 0.32, 2.0]
+    assert CLUSTER_RHOS == (2.0, 4.0, 8.0)
+    assert kept["rho"].tolist() == [2.0]
+
+
+def test_fig_b_selects_one_low_mid_high_run_per_model():
+    rows = []
+    for model in ("vicsek", "votante"):
+        for eta in (0.0, 0.5, 3.5, 6.0):
+            for seed in (1, 32):
+                rows.append(
+                    {
+                        "model": model,
+                        "rho": 4.0,
+                        "eta": eta,
+                        "seed": seed,
+                        "run_dir": f"{model}-{eta}-{seed}",
+                    }
+                )
+    chosen = select_fig_b_runs(pd.DataFrame(rows))
+    assert len(chosen) == 6
+    assert set(chosen["eta"]) == {0.5, 3.5, 6.0}
+    assert set(chosen["seed"]) == {1}
 
 
 def _d_index():

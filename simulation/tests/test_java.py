@@ -39,6 +39,11 @@ def test_injects_absolute_out(tmp_path):
     argv, cwd = fake.calls[0]
     assert cwd == tmp_path
     assert argv[0] == "mvn"
+    assert argv[argv.index("clean") : argv.index("exec:java") + 1] == [
+        "clean",
+        "compile",
+        "exec:java",
+    ]
     joined = " ".join(argv)
     assert "--out" in joined
     assert str(out.resolve()) in joined

@@ -40,6 +40,14 @@ def test_too_short():
     assert onset.status == "too_short"
 
 
+def test_default_detector_accepts_t500_series():
+    t = np.arange(501)
+    y = np.full(t.size, 0.8)
+    onset = detect_onset(t, y, Detector())
+    assert onset.status == "ok"
+    assert onset.t_onset == 100
+
+
 def test_sustain_rejects_single_pass():
     t = np.arange(0, 200)
     y = 0.001 * t

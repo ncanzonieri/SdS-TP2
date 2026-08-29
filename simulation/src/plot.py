@@ -17,10 +17,8 @@ from src.aggregate import USABLE
 from src.io import rho_close
 
 GENERAL_RHOS = (2.0, 4.0, 8.0)
-# Java writes rho = N/L^2 (L=10 → 0.32, 0.16, 0.11) for the cluster densities
-# 1/π, 1/(2π), 1/(3π). Defaults match those folder names; rho_close aliases
-# both styles (including fixture rho0.3183).
-CLUSTER_RHOS = (0.32, 0.16, 0.11, 2.0, 4.0, 8.0)
+CLUSTER_RHOS = GENERAL_RHOS
+CHARACTERISTIC_ETAS = (0.5, 3.5, 6.0)
 
 CURVE_COLORS = [
     "#1f77b4",
@@ -156,11 +154,16 @@ def select_fig_b_runs(index: pd.DataFrame) -> pd.DataFrame:
     if at_rho.empty:
         return index
     etas = sorted(float(e) for e in at_rho["eta"].unique())
-    pick = {etas[0], etas[-1]}
-    chosen = at_rho.loc[at_rho["eta"].map(lambda e: float(e) in pick)]
-    if len(chosen) > 12:
-        print("warning: fig-b overlay has more than 12 series", file=sys.stderr)
-    return chosen
+    pick = {
+        min(etas, key=lambda eta: abs(eta - target))
+        for target in CHARACTERISTIC_ETAS
+    }
+    chosen = at_rho.loc[
+        at_rho["eta"].map(lambda eta: any(np.isclose(float(eta), target) for target in pick))
+    ]
+    sort_cols = [column for column in ("model", "eta", "seed", "run_dir") if column in chosen.columns]
+    chosen = chosen.sort_values(sort_cols)
+    return chosen.drop_duplicates(subset=["model", "eta"], keep="first")
 
 
 def draw_b(index, load_series, onset, *, series, fig_dir, compare) -> list[Path]:
@@ -288,8 +291,8 @@ def draw_d_time(index, load_series, onset, *, fig_dir, compare) -> Path:
     warn_missing_rhos(present, CLUSTER_RHOS)
     for (model, rho), chunk in merged.groupby(["model", "rho"], sort=True):
         etas = sorted(float(e) for e in chunk["eta"].unique())
-        eta0 = etas[0]
-        members = chunk.loc[np.isclose(chunk["eta"].astype(float), eta0)]
+        characteristic_eta = min(etas, key=lambda eta: abs(eta - CHARACTERISTIC_ETAS[1]))
+        members = chunk.loc[np.isclose(chunk["eta"].astype(float), characteristic_eta)]
         stacked = None
         t = None
         for _, row in members.iterrows():
@@ -306,7 +309,7 @@ def draw_d_time(index, load_series, onset, *, fig_dir, compare) -> Path:
         mean = stacked / len(members)
         usable = members.loc[members["status_S"].isin(USABLE) & members["t_onset_S"].notna()]
         t_on = float(usable["t_onset_S"].median()) if not usable.empty else None
-        label = f"{_model_name(model)} | ρ={float(rho):g} | η={eta0:g}"
+        label = f"{_model_name(model)} | ρ={float(rho):g} | η={characteristic_eta:g}"
         if t_on is not None:
             label += f" | t₀={t_on:g}"
         ax.plot(

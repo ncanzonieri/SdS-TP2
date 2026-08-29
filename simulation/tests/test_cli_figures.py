@@ -5,10 +5,11 @@ import matplotlib
 matplotlib.use("Agg")
 
 from src.cli import (
+    _ask_tp1_csv,
     _build_parser,
     _generate_assignment_outputs,
     _production_args,
-    _talk_arg_groups,
+    _talk_args,
     interactive,
     main,
 )
@@ -201,19 +202,16 @@ def test_cmd_all_shares_prepare_path(tmp_path):
 
 def test_assignment_data_profiles_match_frozen_plan():
     production = _production_args()
-    assert production[production.index("--rho") + 1] == "0.3183,0.1592,0.1061,2,4,8"
+    assert production[production.index("--rho") + 1] == "2,4,8"
     assert production[production.index("--eta") + 1] == "0:6:0.5"
-    assert production[production.index("--T") + 1] == "10000"
+    assert production[production.index("--T") + 1] == "500"
     assert production[production.index("--repeats") + 1] == "5"
     assert "--dynamic" not in production
 
-    general, clusters = _talk_arg_groups()
-    assert general[general.index("--rho") + 1] == "2,4,8"
-    assert general[general.index("--eta") + 1] == "0.5,3.5,6"
-    assert clusters[clusters.index("--rho") + 1] == "0.3183,0.1592,0.1061"
-    assert clusters[clusters.index("--eta") + 1] == "3.5"
-    assert "--dynamic" in general
-    assert "--dynamic" in clusters
+    talk = _talk_args()
+    assert talk[talk.index("--rho") + 1] == "2,4,8"
+    assert talk[talk.index("--eta") + 1] == "0.5,3.5,6"
+    assert "--dynamic" in talk
 
 
 def test_interactive_menu_has_three_user_facing_workflows():
@@ -222,6 +220,22 @@ def test_interactive_menu_has_three_user_facing_workflows():
         assert interactive() == 1
     choices = select.call_args.kwargs["choices"]
     assert [choice.value for choice in choices] == ["data", "results", "all"]
+
+
+def test_tp1_prompt_asks_yes_or_no_before_requesting_path(tmp_path):
+    with (
+        patch("src.cli.questionary.confirm") as confirm,
+        patch("src.cli.questionary.text") as text,
+    ):
+        confirm.return_value.ask.return_value = False
+        assert _ask_tp1_csv() is None
+        text.assert_not_called()
+
+        tp1 = tmp_path / "tp1.csv"
+        tp1.write_text("N,mean_ms\n10,1\n", encoding="utf-8")
+        confirm.return_value.ask.return_value = True
+        text.return_value.ask.return_value = str(tp1)
+        assert _ask_tp1_csv() == tp1
 
 
 def test_assignment_outputs_cover_points_a_to_g(tmp_path):
