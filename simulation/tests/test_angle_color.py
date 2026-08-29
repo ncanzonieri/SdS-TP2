@@ -3,7 +3,25 @@ import math
 import numpy as np
 import pandas as pd
 
-from src.animate import TALK_ANIMATIONS, match_talk, theta
+from src.animate import (
+    DISPLAY_ARROW_FRAC,
+    TALK_ANIMATIONS,
+    TALK_CLUSTER_RHOS,
+    TALK_RHOS,
+    display_uv,
+    match_talk,
+    theta,
+)
+
+
+def test_display_uv_keeps_direction_scales_length():
+    L = 10.0
+    ux, uy = display_uv([0.03], [0.0], L)
+    assert abs(ux[0] - L * DISPLAY_ARROW_FRAC) < 1e-12
+    assert abs(uy[0]) < 1e-12
+    ux, uy = display_uv([0.0], [-0.03], L)
+    assert abs(ux[0]) < 1e-12
+    assert abs(uy[0] + L * DISPLAY_ARROW_FRAC) < 1e-12
 
 
 def test_quadrants_and_wrap():
@@ -25,13 +43,35 @@ def test_near_cut_close_in_hue():
 
 
 def test_talk_catalog_size():
-    assert len(TALK_ANIMATIONS) == 12
+    assert TALK_RHOS == (2.0, 4.0, 8.0)
+    assert len(TALK_ANIMATIONS) == 24
     etas = {item[2] for item in TALK_ANIMATIONS}
     assert 0.0 not in etas
     assert {0.5, 3.5, 6.0} <= etas
+    general = {
+        (model, rho, eta)
+        for model, rho, eta in TALK_ANIMATIONS
+        if rho in TALK_RHOS
+    }
+    assert general == {
+        (model, rho, eta)
+        for model in ("vicsek", "votante")
+        for rho in TALK_RHOS
+        for eta in (0.5, 3.5, 6.0)
+    }
+    cluster = {
+        (model, rho, eta)
+        for model, rho, eta in TALK_ANIMATIONS
+        if rho not in TALK_RHOS
+    }
+    assert cluster == {
+        (model, rho, 3.5)
+        for model in ("vicsek", "votante")
+        for rho in TALK_CLUSTER_RHOS
+    }
 
 
-def test_match_talk_resolves_twelve():
+def test_match_talk_resolves_catalog():
     rows = []
     for i, (model, rho, eta) in enumerate(TALK_ANIMATIONS):
         rows.append(
@@ -44,4 +84,4 @@ def test_match_talk_resolves_twelve():
         )
     found, missing = match_talk(pd.DataFrame(rows))
     assert missing == []
-    assert len(found) == 12
+    assert len(found) == 24

@@ -59,7 +59,7 @@ Production command (quote the η range in PowerShell even though Python expands 
 python simulation/main.py run -- --model both --rho 0.3183,0.1592,0.1061,2,4,8 --eta 0:6:0.5 --T 10000 --repeats 5 --seed 1
 ```
 
-780 flock runs (6 ρ × 13 η × 5 × 2 models). Talk animations are a separate 12-run `--dynamic` batch (`animate --talk`). CIM: `run -- --cim-benchmark`.
+780 flock runs (6 ρ × 13 η × 5 × 2 models). Talk animations are a separate 24-run `--dynamic` batch (`animate --talk`). CIM: `run -- --cim-benchmark`.
 
 Do **not** launch this until the group is ready to leave the machine overnight. Calibration is done; the command is frozen, not started.
 
@@ -67,11 +67,12 @@ Do **not** launch this until the group is ready to leave the machine overnight. 
 
 Status: CLI implemented. Sweep numbers frozen 2026-08-27. Production matrix not launched.
 
-- **(a)** animations, arrows at positions, colored by velocity angle, both models. `python simulation/main.py animate --talk` → `output/animations/`. Gap: catalog is ρ=2 and 8 only (not cluster ρ).
+- **(a)** animations, arrows at positions, colored by velocity angle, both models. `python simulation/main.py animate --talk` → `output/animations/`. Catalog: general ρ={2,4,8} × η∈{0.5, η_mid, 6} × both models, plus cluster ρ={1/π, 1/(2π), 1/(3π)} × η_mid × both models. Quiver length is display-only (`L*0.04`, direction kept); Java `v` is unchanged.
 - **(b)** characteristic `va(t)` with onset lines. `fig-b --compare` → `output/figures/<stamp>_fig-b/`. Calibration overlay: `fig-b --batch 2026-08-27_233757 --series va`.
 - **(c)** `va` vs η with error bars, densities 2,4,8. `fig-c --compare`.
-- **(d) S(t)** one curve per density (six ρ). `fig-d` time panel → `fig-d-S-t`.
+- **(d) S(t)** one curve per density (six ρ). `fig-d` time panel → `fig-d-S-t`. Vertical `t_onset_S` lines when status is in `aggregate.USABLE` (same rule as fig-b for `va`).
 - **(d) S vs η** stationary mean ± SD. `fig-d` eta panel → `fig-d-S-eta`.
+- **(d)/(e) cluster ρ** Java folders are `rho0.32` / `0.16` / `0.11` (`N/L²`). `rho_close` aliases those to `1/π`, `1/(2π)`, `1/(3π)` and still matches fixture `rho0.3183`. fig-d/e defaults use the production folder names.
 - **(e)** `va` vs `S`, densities distinguished, six ρ default. `fig-e --compare`.
 - **(f)** voter repeats (a)–(e); overlay both models on (b)–(e) via `--compare`; talk catalog includes votante.
 - **(g)** CIM times vs TP1. `run -- --cim-benchmark` then `fig-g --tp1 PATH`. Gap: no TP1 file in this repo.

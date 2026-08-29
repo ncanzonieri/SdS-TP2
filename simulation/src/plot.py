@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import math
 import sys
 from pathlib import Path
 
@@ -14,10 +13,14 @@ import numpy as np
 import pandas as pd
 import plotly.express as px
 
+from src.aggregate import USABLE
 from src.io import rho_close
 
 GENERAL_RHOS = (2.0, 4.0, 8.0)
-CLUSTER_RHOS = (1 / math.pi, 1 / (2 * math.pi), 1 / (3 * math.pi), 2.0, 4.0, 8.0)
+# Java writes rho = N/L^2 (L=10 → 0.32, 0.16, 0.11) for the cluster densities
+# 1/π, 1/(2π), 1/(3π). Defaults match those folder names; rho_close aliases
+# both styles (including fixture rho0.3183).
+CLUSTER_RHOS = (0.32, 0.16, 0.11, 2.0, 4.0, 8.0)
 
 OKABE_ITO = ["#000000", "#E69F00", "#56B4E9", "#009E73", "#F0E442", "#0072B2", "#D55E00", "#CC79A7"]
 MODEL_LINE = {"vicsek": "-", "votante": "--"}
@@ -150,7 +153,7 @@ def draw_b(index, load_series, onset, *, series, fig_dir, compare) -> list[Path]
             )
             t_on = row.get(onset_col)
             status = row.get(status_col)
-            if status in {"ok", "forced"} and pd.notna(t_on):
+            if status in USABLE and pd.notna(t_on):
                 ax.axvline(float(t_on), color=_color(i), linestyle=":", alpha=0.8)
         ax.set_ylabel(col)
         ax.legend(fontsize=8)
@@ -226,13 +229,14 @@ def draw_c(agg, *, fig_dir) -> list[Path]:
     return [stem]
 
 
-def draw_d_time(index, load_series, *, fig_dir, compare) -> Path:
+def draw_d_time(index, load_series, onset, *, fig_dir, compare) -> Path:
     apply_style()
+    merged = index.merge(_onset_cols(onset), on="run_dir", how="left")
     fig, ax = plt.subplots(figsize=(8, 4.5))
-    present = [float(r) for r in index["rho"].unique()]
+    present = [float(r) for r in merged["rho"].unique()]
     warn_missing_rhos(present, CLUSTER_RHOS)
     i = 0
-    for (model, rho), chunk in index.groupby(["model", "rho"], sort=True):
+    for (model, rho), chunk in merged.groupby(["model", "rho"], sort=True):
         etas = sorted(float(e) for e in chunk["eta"].unique())
         eta0 = etas[0]
         members = chunk.loc[np.isclose(chunk["eta"].astype(float), eta0)]
@@ -259,6 +263,10 @@ def draw_d_time(index, load_series, *, fig_dir, compare) -> Path:
             markevery=max(len(t) // 12, 1),
             label=f"{model} ρ={float(rho):g}",
         )
+        usable = members.loc[members["status_S"].isin(USABLE) & members["t_onset_S"].notna()]
+        if not usable.empty:
+            t_on = float(usable["t_onset_S"].median())
+            ax.axvline(t_on, color=_color(i), linestyle=":", alpha=0.8)
         i += 1
     ax.set_xlabel("t")
     ax.set_ylabel("S")
@@ -316,9 +324,13 @@ def draw_g(cim_frames: list[pd.DataFrame], *, fig_dir, tp1: Path | None, tp1_n_c
         )
     if tp1 is not None and Path(tp1).is_file():
         extra = pd.read_csv(tp1)
-        n_col = tp1_n_col if tp1_n_col in extra.columns else extra.columns[0]
-        t_col = tp1_t_col if tp1_t_col in extra.columns else extra.columns[1]
-        ax.plot(extra[n_col], extra[t_col], linestyle="--", marker="s", color=_color(4), label="TP1")
+        missing = [c for c in (tp1_n_col, tp1_t_col) if c not in extra.columns]
+        if missing:
+            raise ValueError(
+                f"TP1 file {tp1} missing columns {missing}; "
+                f"have {list(extra.columns)}. Pass --tp1-n-col / --tp1-t-col."
+            )
+        ax.plot(extra[tp1_n_col], extra[tp1_t_col], linestyle="--", marker="s", color=_color(4), label="TP1")
     elif tp1:
         print(f"warning: TP1 file not found ({tp1}); plotting TP2 only", file=sys.stderr)
     else:

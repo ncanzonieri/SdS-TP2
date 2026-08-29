@@ -106,15 +106,15 @@ public class SimulationEngine {
         }
 
         // Recien aca se mutan las particulas: nueva posicion (con wrap-around
-        // periodico) y nuevo angulo, todo a partir del buffer ya calculado.
+        // Ecuacion (1): primero se mueve con theta(t); luego se asigna theta(t+1).
         double v = params.getV();
         int L = params.getL();
         for (int idx = 0; idx < particles.size(); idx++) {
             Particle particle = particles.get(idx);
-            double theta = newAngles[idx];
-            particle.setX(wrap(particle.getX() + v * Math.cos(theta), L));
-            particle.setY(wrap(particle.getY() + v * Math.sin(theta), L));
-            particle.setAngle(theta);
+            double currentAngle = particle.getAngle();
+            particle.setX(wrap(particle.getX() + v * Math.cos(currentAngle), L));
+            particle.setY(wrap(particle.getY() + v * Math.sin(currentAngle), L));
+            particle.setAngle(newAngles[idx]);
         }
 
         t++;

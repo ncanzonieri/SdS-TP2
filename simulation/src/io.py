@@ -289,6 +289,55 @@ def load_series(row: pd.Series) -> pd.DataFrame:
     return pd.read_csv(path, compression="gzip")
 
 
+def _path_mtime(path: Path) -> float:
+    try:
+        return path.stat().st_mtime
+    except OSError:
+        return 0.0
+
+
+def java_tree_mtime(out_dir: Path) -> float:
+    """Newest mtime of batch dirs and run files. Used to invalidate a stale cache."""
+    if not out_dir.exists():
+        return 0.0
+    latest = _path_mtime(out_dir)
+    batches = iter_batch_dirs(out_dir)
+    if not batches and out_dir.is_dir():
+        batches = [out_dir]
+    for batch in batches:
+        latest = max(latest, _path_mtime(batch))
+        if not batch.is_dir():
+            continue
+        for child in batch.iterdir():
+            latest = max(latest, _path_mtime(child))
+            if child.is_dir():
+                for name in ("static.txt", "observables.txt", "dynamic.txt"):
+                    target = child / name
+                    if target.is_file():
+                        latest = max(latest, _path_mtime(target))
+        for cim in batch.glob("cim_times_*.txt"):
+            latest = max(latest, _path_mtime(cim))
+    if out_dir.is_dir():
+        for cim in out_dir.glob("cim_times_*.txt"):
+            latest = max(latest, _path_mtime(cim))
+    return latest
+
+
+def _listed_run_names(out_dir: Path) -> set[str]:
+    names: set[str] = set()
+    if (out_dir / "static.txt").is_file():
+        if parse_run_dirname(out_dir.name) is not None:
+            names.add(out_dir.name)
+        return names
+    for batch in iter_batch_dirs(out_dir):
+        if not batch.is_dir():
+            continue
+        for child in batch.iterdir():
+            if child.is_dir() and parse_run_dirname(child.name) is not None:
+                names.add(child.name)
+    return names
+
+
 def load_or_ingest(
     out_dir: Path,
     *,
@@ -296,9 +345,15 @@ def load_or_ingest(
     no_cache: bool = False,
 ) -> IngestResult:
     dest = cache or cache_dir()
-    if no_cache or not (dest / "index.csv.gz").is_file():
+    index_path = dest / "index.csv.gz"
+    if no_cache or not index_path.is_file():
+        return ingest(out_dir, dest)
+    if java_tree_mtime(out_dir) > index_path.stat().st_mtime:
         return ingest(out_dir, dest)
     index = load_index(dest)
+    known = set(index["run_dir"].astype(str)) if not index.empty and "run_dir" in index.columns else set()
+    if not _listed_run_names(out_dir).issubset(known):
+        return ingest(out_dir, dest)
     batches = {p.name for p in iter_batch_dirs(out_dir)}
     if (out_dir / "static.txt").is_file():
         index = index.loc[index["run_dir"] == out_dir.name].copy()
@@ -307,5 +362,11 @@ def load_or_ingest(
     return IngestResult(index, [], [])
 
 
+# Java folder names use rho = N/L^2 (L=10 → 0.32, 0.16, 0.11) even when the
+# requested density was 1/π, 1/(2π), 1/(3π). Fixture dirs keep rho0.3183.
+# abs_tol must cover |0.11 - 1/(3π)| ≈ 3.9e-3 without merging 0.16 vs 0.11.
+RHO_ABS_TOL = 5.5e-3
+
+
 def rho_close(a: float, b: float) -> bool:
-    return math.isclose(a, b, rel_tol=0, abs_tol=5.5e-4)
+    return math.isclose(a, b, rel_tol=0, abs_tol=RHO_ABS_TOL)

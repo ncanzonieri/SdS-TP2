@@ -119,6 +119,22 @@ def _load_index(ns, *, rhos=None, runs=None):
     return _filter_index(result.index, ns, rhos=rhos, runs=runs)
 
 
+def prepare(ns: argparse.Namespace):
+    """Ingest (or reuse a fresh cache), apply user filters, ensemble once."""
+    result = load_or_ingest(_scan_root(ns), cache=_cache(ns), no_cache=ns.no_cache)
+    _print_ingest(result)
+    index = _filter_index(
+        result.index,
+        ns,
+        rhos=_parse_floats(getattr(ns, "rho", None)),
+        runs=_runs(ns),
+    )
+    onset = agg = index
+    if not index.empty:
+        onset, agg = _agg(ns, index)
+    return index, onset, agg
+
+
 def _agg(ns: argparse.Namespace, index):
     onset, agg = ensemble(
         index,
@@ -182,7 +198,7 @@ def _render_kind(kind: str, ns, index, onset, agg) -> list[Path]:
         written: list[Path] = []
         panel = getattr(ns, "panel", "both")
         if panel in {"time", "both"}:
-            written.append(draw_d_time(index, load_series, fig_dir=fig_dir, compare=compare))
+            written.append(draw_d_time(index, load_series, onset, fig_dir=fig_dir, compare=compare))
         if panel in {"eta", "both"}:
             written.append(draw_d_eta(agg, fig_dir=fig_dir))
         return written
@@ -213,14 +229,10 @@ def cmd_ingest(ns: argparse.Namespace) -> int:
 
 
 def cmd_fig(kind: str, ns: argparse.Namespace) -> int:
-    if kind == "g":
-        return cmd_fig_g(ns)
-    index = _load_index(ns, rhos=_rhos_for(kind, ns), runs=_runs(ns))
-    if kind == "b" and _runs(ns) is None:
-        index = select_fig_b_runs(index)
+    index, onset, agg = prepare(ns)
+    index, onset, agg = _slice_for_kind(kind, ns, index, onset, agg)
     if index.empty:
         raise FileNotFoundError("no runs to plot; ingest a Java output tree first")
-    onset, agg = _agg(ns, index)
     stems = _render_kind(kind, ns, index, onset, agg)
     for stem in stems:
         print(stem.with_suffix(".png"))
@@ -242,7 +254,7 @@ def cmd_fig_g(ns: argparse.Namespace) -> int:
 
 
 def cmd_animate(ns: argparse.Namespace) -> int:
-    index = _load_index(ns)
+    index = _load_index(ns, rhos=_parse_floats(getattr(ns, "rho", None)), runs=_runs(ns))
     return _animate(index, ns)
 
 
@@ -285,21 +297,16 @@ def _animate(index, ns, *, talk: bool | None = None) -> int:
 
 
 def cmd_explore(ns: argparse.Namespace) -> int:
-    index = _load_index(ns)
-    _onset, agg = _agg(ns, index)
+    _index, _onset, agg = prepare(ns)
     dest = make_batch("explore") / "explore.html"
     print(explore_html(agg, dest))
     return 0
 
 
 def cmd_all(ns: argparse.Namespace) -> int:
-    result = ingest(_scan_root(ns), _cache(ns))
-    _print_ingest(result)
-    print(f"ingested {len(result.index)} runs")
-    index = _filter_index(result.index, ns)
-    onset = agg = index
+    index, onset, agg = prepare(ns)
+    print(f"ingested {len(index)} runs")
     if not index.empty:
-        onset, agg = _agg(ns, index)
         for kind in ("b", "c", "d", "e"):
             sliced = _slice_for_kind(kind, ns, index, onset, agg)
             for stem in _render_kind(kind, ns, *sliced):
@@ -322,7 +329,7 @@ def _build_parser() -> argparse.ArgumentParser:
     _add_global(ingest_p)
     ingest_p.set_defaults(func=cmd_ingest)
 
-    for kind in ("b", "c", "d", "e", "g"):
+    for kind in ("b", "c", "d", "e"):
         p = sub.add_parser(f"fig-{kind}")
         _add_global(p)
         _add_steady(p)
@@ -331,11 +338,14 @@ def _build_parser() -> argparse.ArgumentParser:
             p.add_argument("--series", default="va")
         if kind == "d":
             p.add_argument("--panel", choices=("time", "eta", "both"), default="both")
-        if kind == "g":
-            p.add_argument("--tp1", type=Path, default=None)
-            p.add_argument("--tp1-n-col", default="N")
-            p.add_argument("--tp1-t-col", default="mean_ms")
         p.set_defaults(func=lambda ns, k=kind: cmd_fig(k, ns))
+
+    fig_g = sub.add_parser("fig-g")
+    _add_global(fig_g)
+    fig_g.add_argument("--tp1", type=Path, default=None)
+    fig_g.add_argument("--tp1-n-col", default="N")
+    fig_g.add_argument("--tp1-t-col", default="mean_ms")
+    fig_g.set_defaults(func=cmd_fig_g)
 
     anim = sub.add_parser("animate")
     _add_global(anim)

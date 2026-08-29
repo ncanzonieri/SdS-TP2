@@ -12,17 +12,24 @@ import numpy as np
 from src.io import rho_close
 
 TALK_MODELS = ("vicsek", "votante")
-TALK_RHOS = (2.0, 8.0)
+TALK_RHOS = (2.0, 4.0, 8.0)
+TALK_CLUSTER_RHOS = (1 / math.pi, 1 / (2 * math.pi), 1 / (3 * math.pi))
 ETA_MID = 3.5
 
 
 def talk_catalog(eta_mid: float = ETA_MID) -> tuple[tuple[str, float, float], ...]:
-    return tuple(
+    general = tuple(
         (model, rho, eta)
         for model in TALK_MODELS
         for eta in (0.5, eta_mid, 6.0)
         for rho in TALK_RHOS
     )
+    cluster = tuple(
+        (model, rho, eta_mid)
+        for model in TALK_MODELS
+        for rho in TALK_CLUSTER_RHOS
+    )
+    return general + cluster
 
 
 TALK_ANIMATIONS = talk_catalog()
@@ -31,6 +38,26 @@ TALK_ANIMATIONS = talk_catalog()
 def theta(vx, vy) -> np.ndarray:
     ang = np.arctan2(np.asarray(vy, dtype=float), np.asarray(vx, dtype=float))
     return np.mod(ang, 2.0 * math.pi)
+
+
+# Display-only: Java v is typically 0.03 in a box of L=10, so quiver in data
+# units (scale_units="xy", scale=1) draws invisible arrows. Keep direction;
+# do not change the Java speed.
+DISPLAY_ARROW_FRAC = 0.04
+
+
+def display_uv(vx, vy, L: float) -> tuple[np.ndarray, np.ndarray]:
+    """Quiver U,V for display. Direction only; length is L * DISPLAY_ARROW_FRAC."""
+    vx = np.asarray(vx, dtype=float)
+    vy = np.asarray(vy, dtype=float)
+    speed = np.hypot(vx, vy)
+    length = float(L) * DISPLAY_ARROW_FRAC
+    ux = np.zeros_like(vx)
+    uy = np.zeros_like(vy)
+    ok = speed > 0
+    ux[ok] = vx[ok] / speed[ok] * length
+    uy[ok] = vy[ok] / speed[ok] * length
+    return ux, uy
 
 
 @dataclass
@@ -69,6 +96,7 @@ def run(
     t0, xy0 = sampled[0]
     x, y, vx, vy = xy0[:, 0], xy0[:, 1], xy0[:, 2], xy0[:, 3]
     c = theta(vx, vy)
+    ux, uy = display_uv(vx, vy, L)
 
     fig, ax = plt.subplots(figsize=(6, 6))
     ax.set_xlim(0, L)
@@ -77,8 +105,8 @@ def run(
     q = ax.quiver(
         x,
         y,
-        vx,
-        vy,
+        ux,
+        uy,
         c,
         cmap="hsv",
         clim=(0.0, 2.0 * math.pi),
@@ -90,8 +118,9 @@ def run(
 
     def update(item):
         t, xy = item
+        du, dv = display_uv(xy[:, 2], xy[:, 3], L)
         q.set_offsets(xy[:, :2])
-        q.set_UVC(xy[:, 2], xy[:, 3], theta(xy[:, 2], xy[:, 3]))
+        q.set_UVC(du, dv, theta(xy[:, 2], xy[:, 3]))
         title.set_text(f"t = {t}")
         return q, title
 
