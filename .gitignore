@@ -7,6 +7,7 @@ target/
 # Output de simulaciones (generado por Main/futuros runs, no es codigo fuente)
 experiment/*.csv
 experiment/out/
+/output/
 
 # Log file
 *.log
@@ -29,3 +30,5 @@ experiment/out/
 # virtual machine crash logs, see http://www.java.com/en/download/help/error_hotspot.xml
 hs_err_pid*
 replay_pid*
+output/
+tmp/

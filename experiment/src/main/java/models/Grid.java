@@ -61,7 +61,7 @@ public class Grid {
         for (Particle particle : particles) {
             int i = cellIndex(particle.getX());
             int j = cellIndex(particle.getY());
-            grid.computeIfAbsent(new Cell(i, j), _ -> new ArrayList<>()).add(particle);
+            grid.computeIfAbsent(new Cell(i, j), ignored -> new ArrayList<>()).add(particle);
         }
 
         Map<Particle,List<Particle>> neighbours = new HashMap<>();
@@ -121,7 +121,7 @@ public class Grid {
     }
 
     private static void addUnique(Map<Particle, List<Particle>> neighbours, Particle particle, Particle other) {
-        List<Particle> values = neighbours.computeIfAbsent(particle, _ -> new ArrayList<>());
+        List<Particle> values = neighbours.computeIfAbsent(particle, ignored -> new ArrayList<>());
         if(!values.contains(other)) {
             values.add(other);
         }

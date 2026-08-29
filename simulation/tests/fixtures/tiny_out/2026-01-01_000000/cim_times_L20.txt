@@ -1,0 +1,5 @@
+# CIM nearestNeighbor only; fixed L=20 rc=1 warmup=20 reps=200
+# N L mean_ns stdev_ns mean_ms
+10 20 1000.0 10.0 0.001000
+50 20 5000.0 50.0 0.005000
+200 20 20000.0 200.0 0.020000
