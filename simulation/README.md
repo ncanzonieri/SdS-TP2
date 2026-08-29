@@ -52,6 +52,13 @@ py -3 simulation/main.py animation --batch <batch> --run-dir <run> --format both
 The old short names (`run`, `fig-b`, `fig-c`, `fig-d`, `fig-e`, `fig-g`,
 `animate`) remain as aliases. On Linux/WSL, replace `py -3` with `python3`.
 
+Figures write a combined view plus one file per curve. Point (c) is always one
+file per model (never a Vicsek+Votante overlay). `--compare` overlays Vicsek and
+Votante only on (b), (d) time, and (e). Error bars are the mean temporal
+standard deviation of the stationary window (`va_ss_err` / `S_ss_err`), not
+seed-to-seed variance or SEM. Interactive reuse can type a full Windows or WSL
+path; that becomes `--out`. `--out` already accepts a full path from the CLI.
+
 Maven is invoked as:
 
 ```

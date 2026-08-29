@@ -90,15 +90,17 @@ def detect_run(
     }
 
 
-def steady_mean(t: np.ndarray, y: np.ndarray, t_onset: int | None) -> float:
+def steady_mean(t: np.ndarray, y: np.ndarray, t_onset: int | None) -> tuple[float, float]:
     if t_onset is None:
-        return float("nan")
+        return float("nan"), float("nan")
     t = np.asarray(t)
     y = np.asarray(y, dtype=float)
     tail = y[t >= t_onset]
     if tail.size == 0:
-        return float("nan")
-    return float(np.mean(tail))
+        return float("nan"), float("nan")
+    mean = float(np.mean(tail))
+    temporal_std = float(np.std(tail, ddof=1)) if tail.size > 1 else 0.0
+    return mean, temporal_std
 
 
 def _force_map(csv_path: str | None, global_t: int | None) -> dict[str, tuple[int | None, int | None]]:
@@ -141,16 +143,18 @@ def ensemble(
         forced = forces.get(key, forces.get("*", (None, None)))
         detected = detect_run(series, detector, force_va=forced[0], force_s=forced[1])
         onset_rows.append({**row.to_dict(), **detected})
-        va_ss = (
-            steady_mean(series["t"].to_numpy(), series["va"].to_numpy(), detected["t_onset_va"])
-            if detected["status_va"] in USABLE
-            else float("nan")
-        )
-        s_ss = (
-            steady_mean(series["t"].to_numpy(), series["S"].to_numpy(), detected["t_onset_S"])
-            if detected["status_S"] in USABLE
-            else float("nan")
-        )
+        if detected["status_va"] in USABLE:
+            va_ss, va_ss_temporal = steady_mean(
+                series["t"].to_numpy(), series["va"].to_numpy(), detected["t_onset_va"]
+            )
+        else:
+            va_ss, va_ss_temporal = float("nan"), float("nan")
+        if detected["status_S"] in USABLE:
+            s_ss, s_ss_temporal = steady_mean(
+                series["t"].to_numpy(), series["S"].to_numpy(), detected["t_onset_S"]
+            )
+        else:
+            s_ss, s_ss_temporal = float("nan"), float("nan")
         ss_rows.append(
             {
                 "model": row["model"],
@@ -159,6 +163,8 @@ def ensemble(
                 "run_dir": row["run_dir"],
                 "va_ss": va_ss,
                 "S_ss": s_ss,
+                "va_ss_temporal": va_ss_temporal,
+                "S_ss_temporal": s_ss_temporal,
                 **detected,
             }
         )
@@ -169,7 +175,10 @@ def ensemble(
         model, rho, eta = keys
         va = chunk["va_ss"].dropna()
         s = chunk["S_ss"].dropna()
+        va_err = chunk["va_ss_temporal"].dropna()
+        s_err = chunk["S_ss_temporal"].dropna()
         n_va, n_s = int(va.size), int(s.size)
+        n_va_err, n_s_err = int(va_err.size), int(s_err.size)
         grouped.append(
             {
                 "model": model,
@@ -181,8 +190,10 @@ def ensemble(
                 "t_onset_S_median": chunk.loc[chunk["status_S"].isin(USABLE), "t_onset_S"].median(),
                 "va_ss": float(va.mean()) if n_va else float("nan"),
                 "va_ss_std": float(va.std(ddof=1)) if n_va > 1 else float("nan"),
+                "va_ss_err": float(va_err.mean()) if n_va_err else float("nan"),
                 "S_ss": float(s.mean()) if n_s else float("nan"),
                 "S_ss_std": float(s.std(ddof=1)) if n_s > 1 else float("nan"),
+                "S_ss_err": float(s_err.mean()) if n_s_err else float("nan"),
             }
         )
     agg = pd.DataFrame(grouped)

@@ -155,6 +155,10 @@ def _agg(ns: argparse.Namespace, index):
     return onset, agg
 
 
+def _png(stem: Path) -> Path:
+    return stem.parent / f"{stem.name}.png"
+
+
 def _fig_dir(ns: argparse.Namespace, suffix: str) -> Path:
     if ns.fig_dir is not None:
         ns.fig_dir.mkdir(parents=True, exist_ok=True)
@@ -202,17 +206,17 @@ def _render_kind(kind: str, ns, index, onset, agg) -> list[Path]:
             compare=compare,
         )
     if kind == "c":
-        return draw_c(agg, fig_dir=fig_dir)
+        return draw_c(agg, fig_dir=fig_dir, compare=compare)
     if kind == "d":
         written: list[Path] = []
         panel = getattr(ns, "panel", "both")
         if panel in {"time", "both"}:
-            written.append(draw_d_time(index, load_series, onset, fig_dir=fig_dir, compare=compare))
+            written.extend(draw_d_time(index, load_series, onset, fig_dir=fig_dir, compare=compare))
         if panel in {"eta", "both"}:
-            written.append(draw_d_eta(agg, fig_dir=fig_dir))
+            written.extend(draw_d_eta(agg, fig_dir=fig_dir, compare=compare))
         return written
     if kind == "e":
-        return draw_e(agg, fig_dir=fig_dir)
+        return draw_e(agg, fig_dir=fig_dir, compare=compare)
     raise ValueError(f"Unknown figure kind {kind!r}")
 
 
@@ -244,7 +248,7 @@ def cmd_fig(kind: str, ns: argparse.Namespace) -> int:
         raise FileNotFoundError("no runs to plot; ingest a Java output tree first")
     stems = _render_kind(kind, ns, index, onset, agg)
     for stem in stems:
-        print(stem.with_suffix(".png"))
+        print(_png(stem))
     return 0
 
 
@@ -258,7 +262,7 @@ def cmd_fig_g(ns: argparse.Namespace) -> int:
         tp1_t_col=getattr(ns, "tp1_t_col", "mean_ms"),
     )
     for stem in stems:
-        print(stem.with_suffix(".png"))
+        print(_png(stem))
     return 0
 
 
@@ -320,7 +324,7 @@ def cmd_all(ns: argparse.Namespace) -> int:
         for kind in ("b", "c", "d", "e"):
             sliced = _slice_for_kind(kind, ns, index, onset, agg)
             for stem in _render_kind(kind, ns, *sliced):
-                print(stem.with_suffix(".png"))
+                print(_png(stem))
     cmd_fig_g(ns)
     if ns.with_animate:
         _animate(index, ns, talk=True)
@@ -473,19 +477,52 @@ def _batch_dirs() -> list[Path]:
     return sorted((path for path in root.iterdir() if path.is_dir()), reverse=True)
 
 
+def _batch_cli_args(batch: str | Path) -> list[str]:
+    path = Path(batch)
+    if path.is_dir():
+        return ["--out", str(path.resolve())]
+    return ["--batch", str(batch)]
+
+
+def _expand_user_path(raw: str) -> Path:
+    if (
+        sys.platform == "win32"
+        and raw.startswith("/mnt/")
+        and len(raw) >= 7
+        and raw[5].isalpha()
+        and raw[6] == "/"
+    ):
+        raw = f"{raw[5]}:/{raw[7:]}"
+    return Path(raw).expanduser()
+
+
+def _ask_typed_batch_path() -> Path | None:
+    while True:
+        raw = questionary.text(
+            "Pegá la ruta completa del lote (Windows C:\\... o WSL /mnt/c/...):",
+        ).ask()
+        if raw is None:
+            return None
+        if not str(raw).strip():
+            print("error: el path no puede estar vacío", file=sys.stderr)
+            continue
+        path = _expand_user_path(raw)
+        resolved = path.resolve()
+        if resolved.is_dir():
+            return resolved
+        print(f"error: no existe el directorio {path}", file=sys.stderr)
+
+
 def _choose_batch(
     prompt: str = "Elegí el lote de datos que querés reutilizar:",
     *,
     need_runs: bool = False,
     need_dynamic: bool = False,
     need_cim: bool = False,
-) -> str | None:
-    batches = _batch_dirs()
-    if not batches:
-        print("error: no hay lotes en output/simulation; primero generá datos", file=sys.stderr)
-        return None
+) -> str | Path | None:
+    write_path = object()
     choices = []
-    for batch in batches:
+    for batch in _batch_dirs():
         runs = [path for path in batch.iterdir() if path.is_dir() and (path / "observables.txt").is_file()]
         dynamic = sum((path / "dynamic.txt").is_file() for path in runs)
         cim = len(find_cim(batch))
@@ -496,15 +533,14 @@ def _choose_batch(
         if need_cim and cim == 0:
             continue
         title = f"{batch.name} — {len(runs)} corridas, {dynamic} animables, {cim} series CIM"
-        choices.append(questionary.Choice(title=title, value=batch.name))
-    if not choices:
-        required = "el tipo de datos solicitado"
-        print(f"error: no hay lotes con {required}; primero generá esos datos", file=sys.stderr)
+        choices.append(questionary.Choice(title=title, value=batch))
+    choices.append(questionary.Choice(title="Escribir un path...", value=write_path))
+    selected = questionary.select(prompt, choices=choices).ask()
+    if selected is None:
         return None
-    return questionary.select(
-        prompt,
-        choices=choices,
-    ).ask()
+    if selected is write_path:
+        return _ask_typed_batch_path()
+    return selected
 
 
 def _interactive_custom_simulate() -> int:
@@ -571,7 +607,7 @@ def _interactive_custom_simulate() -> int:
         "¿Querés elegir ahora qué figuras o animaciones generar con estos datos?",
         default=True,
     ).ask():
-        return _interactive_outputs(out.name)
+        return _interactive_outputs(out)
     return 0
 
 
@@ -677,8 +713,10 @@ def _interactive_generate_data() -> int:
     return _interactive_custom_simulate()
 
 
-def _interactive_animations(batch: str) -> int:
-    batch_path = output_root(repo_root()) / "simulation" / batch
+def _interactive_animations(batch: str | Path) -> int:
+    batch_path = Path(batch)
+    if not batch_path.is_dir():
+        batch_path = output_root(repo_root()) / "simulation" / str(batch)
     result = load_or_ingest(batch_path, cache=cache_dir())
     _print_ingest(result)
     if result.index.empty or "dynamic_path" not in result.index.columns:
@@ -719,7 +757,7 @@ def _interactive_animations(batch: str) -> int:
         return 1
     code = 0
     for run_dir in selected:
-        argv = ["animation", "--batch", batch, "--run-dir", run_dir, "--format", output_format]
+        argv = ["animation", *_batch_cli_args(batch_path), "--run-dir", run_dir, "--format", output_format]
         print("python simulation/main.py " + " ".join(argv))
         code = max(code, main(argv))
     return code
@@ -729,7 +767,7 @@ def _model_name_for_cli(model: str) -> str:
     return "Vicsek" if str(model) == "vicsek" else "Votante"
 
 
-def _interactive_outputs(batch: str | None = None) -> int:
+def _interactive_outputs(batch: str | Path | None = None) -> int:
     products = questionary.checkbox(
         "¿Qué resultados querés generar desde datos existentes?",
         choices=[
@@ -786,10 +824,10 @@ def _interactive_outputs(batch: str | None = None) -> int:
     code = 0
     for product in products:
         if product == "animation":
-            code = max(code, _interactive_animations(str(animation_batch)))
+            code = max(code, _interactive_animations(animation_batch))
             continue
         selected_batch = cim_batch if product == "cim-comparison" else analysis_batch
-        argv = [product, "--batch", str(selected_batch)]
+        argv = [product, *_batch_cli_args(selected_batch)]
         if compare and product in figure_products:
             argv.append("--compare")
         if product == "cim-comparison":
@@ -821,9 +859,9 @@ def _ask_tp1_csv() -> Path | None:
 
 
 def _generate_assignment_outputs(
-    analysis_batch: str,
-    animation_batch: str,
-    cim_batch: str,
+    analysis_batch: str | Path,
+    animation_batch: str | Path,
+    cim_batch: str | Path,
     *,
     tp1: Path | None,
 ) -> int:
@@ -835,15 +873,15 @@ def _generate_assignment_outputs(
         "clusters",
         "polarization-vs-cluster",
     ):
-        argv = [product, "--batch", analysis_batch, "--fig-dir", str(fig_dir), "--compare"]
+        argv = [product, *_batch_cli_args(analysis_batch), "--fig-dir", str(fig_dir), "--compare"]
         print("python simulation/main.py " + " ".join(argv))
         code = max(code, main(argv))
 
-    animation_argv = ["animation", "--batch", animation_batch, "--talk", "--format", "both"]
+    animation_argv = ["animation", *_batch_cli_args(animation_batch), "--talk", "--format", "both"]
     print("python simulation/main.py " + " ".join(animation_argv))
     code = max(code, main(animation_argv))
 
-    cim_argv = ["cim-comparison", "--batch", cim_batch, "--fig-dir", str(fig_dir)]
+    cim_argv = ["cim-comparison", *_batch_cli_args(cim_batch), "--fig-dir", str(fig_dir)]
     if tp1 is not None:
         cim_argv.extend(["--tp1", str(tp1)])
     print("python simulation/main.py " + " ".join(cim_argv))
@@ -852,7 +890,7 @@ def _generate_assignment_outputs(
     return code
 
 
-def _existing_assignment_batches() -> tuple[str, str, str] | None:
+def _existing_assignment_batches() -> tuple[str | Path, str | Path, str | Path] | None:
     analysis = _choose_batch(
         "Lote del barrido completo (observables para b–f):",
         need_runs=True,
@@ -907,7 +945,7 @@ def _interactive_all() -> int:
         animations_path = _generate_talk_data()
         print("Etapa 3/3: benchmark del CIM.")
         cim_path = _generate_cim_data()
-        analysis, animations, cim = analysis_path.name, animations_path.name, cim_path.name
+        analysis, animations, cim = analysis_path, animations_path, cim_path
 
     tp1 = _ask_tp1_csv()
     if tp1 is None:
