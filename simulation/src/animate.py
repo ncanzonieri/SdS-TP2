@@ -1,13 +1,22 @@
-"""Particle animations from dynamic.txt. ffmpeg is a system binary."""
+"""Particle animations from dynamic.txt, exported as GIF and/or MP4."""
 
 from __future__ import annotations
 
 import math
-import shutil
 from dataclasses import dataclass
 from pathlib import Path
 
+import matplotlib
+
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
 import numpy as np
+from matplotlib.animation import FFMpegWriter, FuncAnimation, PillowWriter
+
+try:
+    import imageio_ffmpeg
+except ImportError:
+    imageio_ffmpeg = None
 
 from src.io import rho_close
 
@@ -64,7 +73,7 @@ def display_uv(vx, vy, L: float) -> tuple[np.ndarray, np.ndarray]:
 class AnimateOpts:
     stride: int = 5
     fps: int = 20
-    gif: bool = False
+    output_format: str = "both"
 
 
 def run(
@@ -73,19 +82,15 @@ def run(
     L: int,
     dest: Path,
     opts: AnimateOpts | None = None,
-) -> Path:
+) -> tuple[Path, ...]:
     opts = opts or AnimateOpts()
-    if shutil.which("ffmpeg") is None:
+    if opts.output_format not in {"gif", "mp4", "both"}:
+        raise ValueError(f"unknown animation format: {opts.output_format}")
+    if opts.output_format in {"mp4", "both"} and imageio_ffmpeg is None:
         raise RuntimeError(
-            "ffmpeg not found on PATH; install ffmpeg (system package, not pip) to export MP4"
+            "MP4 export requires imageio-ffmpeg; install simulation/requirements.txt "
+            "or use --format gif"
         )
-    # Agg must be selected before pyplot; importing this module must not change the process backend.
-    import matplotlib
-
-    matplotlib.use("Agg")
-    import matplotlib.pyplot as plt
-    from matplotlib.animation import FFMpegWriter, FuncAnimation, PillowWriter
-
     sampled = list(frames)
     if opts.stride > 1:
         sampled = sampled[:: opts.stride]
@@ -125,13 +130,18 @@ def run(
         return q, title
 
     anim = FuncAnimation(fig, update, frames=sampled, blit=False, interval=1000 / opts.fps)
-    mp4 = dest.with_suffix(".mp4") if dest.suffix != ".mp4" else dest
-    writer = FFMpegWriter(fps=opts.fps)
-    anim.save(mp4, writer=writer)
-    if opts.gif:
-        anim.save(mp4.with_suffix(".gif"), writer=PillowWriter(fps=opts.fps))
+    written: list[Path] = []
+    if opts.output_format in {"gif", "both"}:
+        gif = dest.with_suffix(".gif")
+        anim.save(gif, writer=PillowWriter(fps=opts.fps))
+        written.append(gif)
+    if opts.output_format in {"mp4", "both"}:
+        matplotlib.rcParams["animation.ffmpeg_path"] = imageio_ffmpeg.get_ffmpeg_exe()
+        mp4 = dest.with_suffix(".mp4")
+        anim.save(mp4, writer=FFMpegWriter(fps=opts.fps))
+        written.append(mp4)
     plt.close(fig)
-    return mp4
+    return tuple(written)
 
 
 def match_talk(index, *, eta_mid: float = ETA_MID):

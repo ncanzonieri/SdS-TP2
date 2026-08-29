@@ -1,5 +1,7 @@
 questionary==2.1.1
 matplotlib==3.11.1
+Pillow==12.3.0
+imageio-ffmpeg==0.6.0
 pandas==3.0.5
 plotly==7.0.0
 pytest==9.1.1

@@ -12,7 +12,9 @@ On this Windows machine `python` is not on PATH; use `py -3`. Team target is Pyt
 
 Java writes text; this package only reads it (and can start Maven). Physics stay in `experiment/`.
 
-Create a venv yourself, then `pip install -r requirements.txt`. ffmpeg is a **system** binary (not pip).
+Create a venv yourself, then `pip install -r requirements.txt`. Animations default
+to GIF + MP4 (`--format gif|mp4|both`). Pillow writes GIF; `imageio-ffmpeg`
+supplies the MP4 encoder, so no system FFmpeg is required.
 
 ## Layout
 
@@ -22,7 +24,7 @@ simulation/src/        cli, paths, java, io, aggregate, plot, animate
 output/                gitignored product tree
   simulation/<YYYY-MM-DD_HHMMSS>/   Java runs + cim_times_*.txt
   figures/<stamp>_<kind>/
-  animations/<stamp>_<run>/
+  animations/<stamp>_<run>/flock.{gif,mp4}
   explore/<stamp>/
   cache/index.csv.gz
   cache/series/<batch>/<run_dir>.csv.gz   # t, va, S only
@@ -67,7 +69,7 @@ Do **not** launch this until the group is ready to leave the machine overnight. 
 
 Status: CLI implemented. Sweep numbers frozen 2026-08-27. Production matrix not launched.
 
-- **(a)** animations, arrows at positions, colored by velocity angle, both models. `python simulation/main.py animate --talk` → `output/animations/`. Catalog: general ρ={2,4,8} × η∈{0.5, η_mid, 6} × both models, plus cluster ρ={1/π, 1/(2π), 1/(3π)} × η_mid × both models. Quiver length is display-only (`L*0.04`, direction kept); Java `v` is unchanged.
+- **(a)** GIF and MP4 animations, arrows at positions, colored by velocity angle, both models. `python simulation/main.py animate --talk` → `output/animations/`. Catalog: general ρ={2,4,8} × η∈{0.5, η_mid, 6} × both models, plus cluster ρ={1/π, 1/(2π), 1/(3π)} × η_mid × both models. Quiver length is display-only (`L*0.04`, direction kept); Java `v` is unchanged.
 - **(b)** characteristic `va(t)` with onset lines. `fig-b --compare` → `output/figures/<stamp>_fig-b/`. Calibration overlay: `fig-b --batch 2026-08-27_233757 --series va`.
 - **(c)** `va` vs η with error bars, densities 2,4,8. `fig-c --compare`.
 - **(d) S(t)** one curve per density (six ρ). `fig-d` time panel → `fig-d-S-t`. Vertical `t_onset_S` lines when status is in `aggregate.USABLE` (same rule as fig-b for `va`).

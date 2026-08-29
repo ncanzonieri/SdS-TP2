@@ -4,7 +4,14 @@ import matplotlib
 
 matplotlib.use("Agg")
 
-from src.cli import _build_parser, main
+from src.cli import (
+    _build_parser,
+    _generate_assignment_outputs,
+    _production_args,
+    _talk_arg_groups,
+    interactive,
+    main,
+)
 from src.io import ingest
 from tests.conftest import FIXTURE_BATCH
 
@@ -90,13 +97,16 @@ def test_ingest_does_not_cache_onset(tmp_path):
     assert "agg.csv.gz" not in names
 
 
-def test_animate_without_ffmpeg(tmp_path):
+def test_animate_uses_gif_destination(tmp_path):
     cache = tmp_path / "cache"
     ingest(FIXTURE_BATCH, cache)
-    with patch("src.animate.shutil.which", return_value=None):
+    expected = tmp_path / "flock.gif"
+    with patch("src.cli.animate_run", return_value=(expected,)) as animate:
         code = main(
             [
                 "animate",
+                "--format",
+                "gif",
                 "--run-dir",
                 "vicsek_rho2_eta0_T10_seed1",
                 "--out",
@@ -105,7 +115,9 @@ def test_animate_without_ffmpeg(tmp_path):
                 str(cache),
             ]
         )
-    assert code == 1
+    assert code == 0
+    assert animate.call_args.kwargs["dest"].name == "flock"
+    assert animate.call_args.kwargs["opts"].output_format == "gif"
 
 
 def test_animate_rho_and_runs_are_applied(tmp_path):
@@ -151,6 +163,11 @@ def test_fig_g_parser_has_no_steady_flags():
     assert ns.tp1 is None
 
 
+def test_animate_format_defaults_to_both():
+    ns = _build_parser().parse_args(["animate"])
+    assert ns.format == "both"
+
+
 def test_cmd_all_shares_prepare_path(tmp_path):
     cache = tmp_path / "cache"
     figs = tmp_path / "figs"
@@ -180,3 +197,61 @@ def test_cmd_all_shares_prepare_path(tmp_path):
     assert (figs / "fig-d-S-eta.png").is_file()
     assert (figs / "fig-e.png").is_file()
     assert (figs / "fig-g.png").is_file()
+
+
+def test_assignment_data_profiles_match_frozen_plan():
+    production = _production_args()
+    assert production[production.index("--rho") + 1] == "0.3183,0.1592,0.1061,2,4,8"
+    assert production[production.index("--eta") + 1] == "0:6:0.5"
+    assert production[production.index("--T") + 1] == "10000"
+    assert production[production.index("--repeats") + 1] == "5"
+    assert "--dynamic" not in production
+
+    general, clusters = _talk_arg_groups()
+    assert general[general.index("--rho") + 1] == "2,4,8"
+    assert general[general.index("--eta") + 1] == "0.5,3.5,6"
+    assert clusters[clusters.index("--rho") + 1] == "0.3183,0.1592,0.1061"
+    assert clusters[clusters.index("--eta") + 1] == "3.5"
+    assert "--dynamic" in general
+    assert "--dynamic" in clusters
+
+
+def test_interactive_menu_has_three_user_facing_workflows():
+    with patch("src.cli.questionary.select") as select:
+        select.return_value.ask.return_value = None
+        assert interactive() == 1
+    choices = select.call_args.kwargs["choices"]
+    assert [choice.value for choice in choices] == ["data", "results", "all"]
+
+
+def test_assignment_outputs_cover_points_a_to_g(tmp_path):
+    tp1 = tmp_path / "tp1.csv"
+    tp1.write_text("N,mean_ms\n1,1\n", encoding="utf-8")
+    with (
+        patch("src.cli.make_batch", return_value=tmp_path / "figures"),
+        patch("src.cli.main", return_value=0) as dispatch,
+    ):
+        assert (
+            _generate_assignment_outputs(
+                "analysis-batch",
+                "animation-batch",
+                "cim-batch",
+                tp1=tp1,
+            )
+            == 0
+        )
+
+    calls = [call.args[0] for call in dispatch.call_args_list]
+    assert [argv[0] for argv in calls] == [
+        "time-series",
+        "polarization-vs-noise",
+        "clusters",
+        "polarization-vs-cluster",
+        "animation",
+        "cim-comparison",
+    ]
+    assert all("--compare" in argv for argv in calls[:4])
+    assert calls[4][calls[4].index("--batch") + 1] == "animation-batch"
+    assert "--talk" in calls[4]
+    assert calls[5][calls[5].index("--batch") + 1] == "cim-batch"
+    assert calls[5][calls[5].index("--tp1") + 1] == str(tp1)

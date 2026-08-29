@@ -34,6 +34,12 @@ from src.plot import (
     select_fig_b_runs,
 )
 
+PRODUCTION_RHOS = "0.3183,0.1592,0.1061,2,4,8"
+GENERAL_RHOS = "2,4,8"
+CLUSTER_RHOS = "0.3183,0.1592,0.1061"
+PRODUCTION_ETAS = "0:6:0.5"
+TALK_ETAS = "0.5,3.5,6"
+
 
 def _detector(ns: argparse.Namespace) -> Detector:
     return Detector(
@@ -46,29 +52,33 @@ def _detector(ns: argparse.Namespace) -> Detector:
 
 
 def _add_global(p: argparse.ArgumentParser) -> None:
-    p.add_argument("--out", type=Path, default=None, help="Java output tree (default: <repo>/output)")
-    p.add_argument("--batch", default=None, help="restrict to output/simulation/<batch>")
-    p.add_argument("--cache-dir", type=Path, default=None)
-    p.add_argument("--fig-dir", type=Path, default=None)
-    p.add_argument("--no-cache", action="store_true")
+    p.add_argument("--out", type=Path, default=None, help="carpeta que contiene los datos Java")
+    p.add_argument(
+        "--batch",
+        default=None,
+        help="lote existente dentro de output/simulation; permite reutilizar una simulación",
+    )
+    p.add_argument("--cache-dir", type=Path, default=None, help="carpeta del caché de lectura")
+    p.add_argument("--fig-dir", type=Path, default=None, help="carpeta donde guardar las figuras")
+    p.add_argument("--no-cache", action="store_true", help="releer los TXT aunque exista caché")
 
 
 def _add_steady(p: argparse.ArgumentParser) -> None:
-    p.add_argument("--window", type=int, default=200)
-    p.add_argument("--atol", type=float, default=0.02)
-    p.add_argument("--rtol", type=float, default=0.05)
-    p.add_argument("--t-min", type=int, default=200)
-    p.add_argument("--sustain", type=int, default=3)
-    p.add_argument("--t-onset", type=int, default=None)
-    p.add_argument("--t-onset-csv", default=None)
+    p.add_argument("--window", type=int, default=200, help="ancho de ventana para detectar estacionario")
+    p.add_argument("--atol", type=float, default=0.02, help="tolerancia absoluta del detector")
+    p.add_argument("--rtol", type=float, default=0.05, help="tolerancia relativa del detector")
+    p.add_argument("--t-min", type=int, default=200, help="primer tiempo posible del estacionario")
+    p.add_argument("--sustain", type=int, default=3, help="ventanas estables consecutivas requeridas")
+    p.add_argument("--t-onset", type=int, default=None, help="forzar un mismo inicio estacionario")
+    p.add_argument("--t-onset-csv", default=None, help="CSV con inicios estacionarios por corrida")
 
 
 def _add_plot_filters(p: argparse.ArgumentParser) -> None:
-    p.add_argument("--compare", action="store_true")
-    p.add_argument("--rho", default=None, help="comma-separated densities")
-    p.add_argument("--model", default=None)
-    p.add_argument("--eta", default=None)
-    p.add_argument("--runs", default=None, help="comma-separated run directory names")
+    p.add_argument("--compare", action="store_true", help="superponer Vicsek y Votante")
+    p.add_argument("--rho", default=None, help="densidades separadas por coma")
+    p.add_argument("--model", default=None, help="vicsek, votante o ambos separados por coma")
+    p.add_argument("--eta", default=None, help="ruidos eta separados por coma")
+    p.add_argument("--runs", default=None, help="nombres de corridas separados por coma")
 
 
 def _parse_floats(raw: str | None) -> list[float] | None:
@@ -274,7 +284,7 @@ def _animate(index, ns, *, talk: bool | None = None) -> int:
         if index.empty:
             raise FileNotFoundError("no runs with cache index")
         rows = [index.iloc[0]]
-    opts = AnimateOpts(stride=ns.stride, fps=ns.fps, gif=ns.gif)
+    opts = AnimateOpts(stride=ns.stride, fps=ns.fps, output_format=ns.format)
     written = 0
     for row in rows:
         dyn = Path(str(row["dynamic_path"]))
@@ -282,14 +292,15 @@ def _animate(index, ns, *, talk: bool | None = None) -> int:
             print(f"warning: no dynamic.txt for {row['run_dir']}", file=sys.stderr)
             continue
         dest_dir = make_batch("animations", str(row["run_dir"]))
-        dest = dest_dir / "flock.mp4"
-        path = animate_run(
+        dest = dest_dir / "flock"
+        paths = animate_run(
             iter_dynamic_frames(dyn),
             L=int(row["L"]),
             dest=dest,
             opts=opts,
         )
-        print(path)
+        for path in paths:
+            print(path)
         written += 1
     if talk and written == 0:
         raise FileNotFoundError("animate --talk: no matching runs with dynamic.txt")
@@ -318,106 +329,621 @@ def cmd_all(ns: argparse.Namespace) -> int:
 
 
 def _build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="python simulation/main.py")
-    sub = parser.add_subparsers(dest="cmd")
+    parser = argparse.ArgumentParser(
+        prog="python simulation/main.py",
+        description=(
+            "TP2: primero genere un lote de datos de texto; después reutilice ese lote "
+            "para crear figuras, animaciones o el explorador sin volver a simular."
+        ),
+    )
+    sub = parser.add_subparsers(dest="cmd", title="acciones")
 
-    run_p = sub.add_parser("run", help="start the Java engine")
-    run_p.add_argument("java_args", nargs=argparse.REMAINDER)
+    run_p = sub.add_parser(
+        "simulate",
+        aliases=["run"],
+        help="generar un lote reutilizable de datos con el motor Java",
+        description=(
+            "Ejecuta el motor Java. Cada combinación modelo × densidad × ruido × repetición "
+            "es una corrida; todas quedan juntas en un lote nuevo."
+        ),
+    )
+    run_p.add_argument(
+        "java_args",
+        nargs=argparse.REMAINDER,
+        help="opciones del motor después de --; use --help para abrir el asistente interactivo",
+    )
     run_p.set_defaults(func=cmd_run)
 
-    ingest_p = sub.add_parser("ingest")
+    ingest_p = sub.add_parser(
+        "load-data",
+        aliases=["ingest"],
+        help="leer o actualizar el caché de un lote ya simulado",
+    )
     _add_global(ingest_p)
     ingest_p.set_defaults(func=cmd_ingest)
 
-    for kind in ("b", "c", "d", "e"):
-        p = sub.add_parser(f"fig-{kind}")
+    figure_commands = {
+        "b": (
+            "time-series",
+            ["fig-b"],
+            "(b) graficar la evolución temporal y el inicio estacionario",
+        ),
+        "c": (
+            "polarization-vs-noise",
+            ["fig-c"],
+            "(c) graficar polarización estacionaria vs. ruido con errores",
+        ),
+        "d": (
+            "clusters",
+            ["fig-d"],
+            "(d) graficar S(t) y S estacionario vs. ruido",
+        ),
+        "e": (
+            "polarization-vs-cluster",
+            ["fig-e"],
+            "(e) relacionar polarización y componente gigante",
+        ),
+    }
+    for kind, (name, aliases, help_text) in figure_commands.items():
+        p = sub.add_parser(name, aliases=aliases, help=help_text)
         _add_global(p)
         _add_steady(p)
         _add_plot_filters(p)
         if kind == "b":
-            p.add_argument("--series", default="va")
+            p.add_argument(
+                "--series",
+                choices=("va", "S", "va,S"),
+                default="va",
+                help="observable temporal a mostrar",
+            )
         if kind == "d":
-            p.add_argument("--panel", choices=("time", "eta", "both"), default="both")
+            p.add_argument(
+                "--panel",
+                choices=("time", "eta", "both"),
+                default="both",
+                help="evolución temporal, curva estacionaria o ambas",
+            )
         p.set_defaults(func=lambda ns, k=kind: cmd_fig(k, ns))
 
-    fig_g = sub.add_parser("fig-g")
+    fig_g = sub.add_parser(
+        "cim-comparison",
+        aliases=["fig-g"],
+        help="(g) comparar tiempos del CIM del TP2 con el TP1",
+    )
     _add_global(fig_g)
-    fig_g.add_argument("--tp1", type=Path, default=None)
-    fig_g.add_argument("--tp1-n-col", default="N")
-    fig_g.add_argument("--tp1-t-col", default="mean_ms")
+    fig_g.add_argument("--tp1", type=Path, default=None, help="CSV de tiempos del TP1")
+    fig_g.add_argument("--tp1-n-col", default="N", help="columna de N en el CSV del TP1")
+    fig_g.add_argument("--tp1-t-col", default="mean_ms", help="columna de tiempo en el CSV del TP1")
     fig_g.set_defaults(func=cmd_fig_g)
 
-    anim = sub.add_parser("animate")
+    anim = sub.add_parser(
+        "animation",
+        aliases=["animate"],
+        help="crear GIF/MP4 desde dynamic.txt sin volver a simular",
+    )
     _add_global(anim)
     _add_steady(anim)
     _add_plot_filters(anim)
-    anim.add_argument("--run-dir", default=None)
-    anim.add_argument("--talk", action="store_true")
-    anim.add_argument("--eta-mid", type=float, default=3.5)
-    anim.add_argument("--stride", type=int, default=5)
-    anim.add_argument("--fps", type=int, default=20)
-    anim.add_argument("--gif", action="store_true")
+    anim.add_argument("--run-dir", default=None, help="corrida exacta dentro del lote")
+    anim.add_argument("--talk", action="store_true", help="crear el catálogo de animaciones de la exposición")
+    anim.add_argument("--eta-mid", type=float, default=3.5, help="ruido intermedio del catálogo")
+    anim.add_argument("--stride", type=int, default=5, help="usar un frame cada N tiempos")
+    anim.add_argument("--fps", type=int, default=20, help="cuadros por segundo del archivo final")
+    anim.add_argument("--format", choices=("gif", "mp4", "both"), default="both", help="formato de salida")
     anim.set_defaults(func=cmd_animate)
 
-    exp = sub.add_parser("explore")
+    exp = sub.add_parser(
+        "interactive-chart",
+        aliases=["explore"],
+        help="crear un gráfico HTML interactivo desde un lote",
+    )
     _add_global(exp)
     _add_steady(exp)
     _add_plot_filters(exp)
     exp.set_defaults(func=cmd_explore)
 
-    all_p = sub.add_parser("all")
+    all_p = sub.add_parser(
+        "all-figures",
+        aliases=["all"],
+        help="generar todas las figuras b–g desde datos existentes",
+    )
     _add_global(all_p)
     _add_steady(all_p)
     _add_plot_filters(all_p)
-    all_p.add_argument("--with-animate", action="store_true")
-    all_p.add_argument("--series", default="va")
-    all_p.add_argument("--panel", default="both")
-    all_p.add_argument("--tp1", type=Path, default=None)
+    all_p.add_argument("--with-animate", action="store_true", help="agregar animaciones de la exposición")
+    all_p.add_argument("--series", default="va", help="serie para la figura b")
+    all_p.add_argument("--panel", default="both", help="paneles para la figura d")
+    all_p.add_argument("--tp1", type=Path, default=None, help="CSV opcional con tiempos del TP1")
     all_p.add_argument("--tp1-n-col", default="N")
     all_p.add_argument("--tp1-t-col", default="mean_ms")
     all_p.add_argument("--eta-mid", type=float, default=3.5)
     all_p.add_argument("--stride", type=int, default=5)
     all_p.add_argument("--fps", type=int, default=20)
-    all_p.add_argument("--gif", action="store_true")
+    all_p.add_argument("--format", choices=("gif", "mp4", "both"), default="both")
     all_p.set_defaults(func=cmd_all)
 
-    inter = sub.add_parser("interactive")
+    inter = sub.add_parser("interactive", help="abrir el asistente guiado")
     inter.set_defaults(func=lambda ns: interactive())
     return parser
 
 
+def _batch_dirs() -> list[Path]:
+    root = output_root(repo_root()) / "simulation"
+    if not root.is_dir():
+        return []
+    return sorted((path for path in root.iterdir() if path.is_dir()), reverse=True)
+
+
+def _choose_batch(
+    prompt: str = "Elegí el lote de datos que querés reutilizar:",
+    *,
+    need_runs: bool = False,
+    need_dynamic: bool = False,
+    need_cim: bool = False,
+) -> str | None:
+    batches = _batch_dirs()
+    if not batches:
+        print("error: no hay lotes en output/simulation; primero generá datos", file=sys.stderr)
+        return None
+    choices = []
+    for batch in batches:
+        runs = [path for path in batch.iterdir() if path.is_dir() and (path / "observables.txt").is_file()]
+        dynamic = sum((path / "dynamic.txt").is_file() for path in runs)
+        cim = len(find_cim(batch))
+        if need_runs and not runs:
+            continue
+        if need_dynamic and dynamic == 0:
+            continue
+        if need_cim and cim == 0:
+            continue
+        title = f"{batch.name} — {len(runs)} corridas, {dynamic} animables, {cim} series CIM"
+        choices.append(questionary.Choice(title=title, value=batch.name))
+    if not choices:
+        required = "el tipo de datos solicitado"
+        print(f"error: no hay lotes con {required}; primero generá esos datos", file=sys.stderr)
+        return None
+    return questionary.select(
+        prompt,
+        choices=choices,
+    ).ask()
+
+
+def _interactive_custom_simulate() -> int:
+    model = questionary.select(
+        "Modelo (cada opción genera corridas independientes):",
+        choices=[
+            questionary.Choice("Ambos — Vicsek y Votante para poder compararlos", value="both"),
+            questionary.Choice("Vicsek — promedia las direcciones vecinas", value="vicsek"),
+            questionary.Choice("Votante — copia la dirección de un vecino", value="votante"),
+        ],
+    ).ask()
+    if model is None:
+        return 1
+    rho = questionary.text(
+        "Densidades rho separadas por coma (N=rho*L^2):",
+        default="2,4,8",
+    ).ask()
+    eta = questionary.text(
+        "Ruidos eta; lista 0,0.5,1 o rango desde:hasta:paso:",
+        default="0:6:0.5",
+    ).ask()
+    steps = questionary.text(
+        "Pasos T por corrida (500 prueba rápida; 10000 producción):",
+        default="500",
+    ).ask()
+    repeats = questionary.text(
+        "Repeticiones por combinación (semillas distintas; necesarias para barras de error):",
+        default="1",
+    ).ask()
+    seed = questionary.text("Semilla base reproducible:", default="1").ask()
+    dynamic = questionary.confirm(
+        "¿Guardar posiciones y velocidades (dynamic.txt) para poder animar? Ocupa mucho más espacio.",
+        default=False,
+    ).ask()
+    answers = (rho, eta, steps, repeats, seed, dynamic)
+    if any(answer is None for answer in answers):
+        return 1
+    args = [
+        "--model",
+        model,
+        "--rho",
+        rho,
+        "--eta",
+        eta,
+        "--T",
+        steps,
+        "--repeats",
+        repeats,
+        "--seed",
+        seed,
+    ]
+    if dynamic:
+        args.append("--dynamic")
+    summary = (
+        f"modelo={model}, rho={rho}, eta={eta}, T={steps}, repeticiones={repeats}, "
+        f"dynamic.txt={'sí' if dynamic else 'no'}"
+    )
+    if not questionary.confirm(f"¿Generar este lote? {summary}", default=True).ask():
+        return 1
+    out = run_engine(args)
+    print(f"Datos guardados en: {out}")
+    print("Podés reutilizar este lote todas las veces que quieras sin volver a simular.")
+    if questionary.confirm(
+        "¿Querés elegir ahora qué figuras o animaciones generar con estos datos?",
+        default=True,
+    ).ask():
+        return _interactive_outputs(out.name)
+    return 0
+
+
+def _production_args() -> list[str]:
+    return [
+        "--model",
+        "both",
+        "--rho",
+        PRODUCTION_RHOS,
+        "--eta",
+        PRODUCTION_ETAS,
+        "--T",
+        "10000",
+        "--repeats",
+        "5",
+        "--seed",
+        "1",
+    ]
+
+
+def _talk_arg_groups() -> tuple[list[str], list[str]]:
+    common = ["--model", "both", "--T", "2000", "--seed", "1", "--dynamic"]
+    general = ["--rho", GENERAL_RHOS, "--eta", TALK_ETAS, *common]
+    clusters = ["--rho", CLUSTER_RHOS, "--eta", "3.5", *common]
+    return general, clusters
+
+
+def _confirm_production() -> bool:
+    return bool(
+        questionary.confirm(
+            "El barrido completo ejecuta 780 corridas de T=10000 y tarda aproximadamente "
+            "1.5–2 horas. ¿La máquina está lista para continuar?",
+            default=False,
+        ).ask()
+    )
+
+
+def _generate_production_data(*, confirm: bool = True) -> Path | None:
+    if confirm and not _confirm_production():
+        return None
+    print("Generando barrido productivo: ambos modelos, 6 densidades, 13 ruidos y 5 repeticiones.")
+    out = run_engine(_production_args())
+    print(f"Barrido guardado en: {out}")
+    return out
+
+
+def _generate_talk_data() -> Path:
+    out = make_batch("simulation", "animaciones")
+    general, clusters = _talk_arg_groups()
+    print("Generando 18 corridas animables para rho={2,4,8}...")
+    run_engine(general, out_dir=out)
+    print("Generando 6 corridas animables para las densidades de clusters...")
+    run_engine(clusters, out_dir=out)
+    print(f"Datos animables guardados en: {out}")
+    return out
+
+
+def _generate_cim_data() -> Path:
+    print("Ejecutando benchmark del Cell Index Method...")
+    out = run_engine(["--cim-benchmark"])
+    print(f"Benchmark guardado en: {out}")
+    return out
+
+
+def _interactive_generate_data() -> int:
+    profile = questionary.select(
+        "¿Qué datos querés generar?",
+        choices=[
+            questionary.Choice(
+                "Barrido completo del TP — 780 corridas, sin dynamic.txt",
+                value="production",
+            ),
+            questionary.Choice(
+                "Corridas para animaciones — 24 corridas con dynamic.txt",
+                value="talk",
+            ),
+            questionary.Choice(
+                "Benchmark del CIM — tiempos necesarios para el punto (g)",
+                value="cim",
+            ),
+            questionary.Choice(
+                "Configuración personalizada — elegir modelo, densidad, ruido y T",
+                value="custom",
+            ),
+        ],
+    ).ask()
+    if profile is None:
+        return 1
+    if profile == "production":
+        return 0 if _generate_production_data() is not None else 1
+    if profile == "talk":
+        _generate_talk_data()
+        return 0
+    if profile == "cim":
+        _generate_cim_data()
+        return 0
+    return _interactive_custom_simulate()
+
+
+def _interactive_animations(batch: str) -> int:
+    batch_path = output_root(repo_root()) / "simulation" / batch
+    result = load_or_ingest(batch_path, cache=cache_dir())
+    _print_ingest(result)
+    if result.index.empty or "dynamic_path" not in result.index.columns:
+        print(f"error: el lote {batch} no contiene corridas válidas", file=sys.stderr)
+        return 1
+    rows = result.index.loc[result.index["dynamic_path"].map(lambda path: Path(str(path)).is_file())]
+    if rows.empty:
+        print(
+            "error: ninguna corrida de este lote tiene dynamic.txt; generá los datos con --dynamic",
+            file=sys.stderr,
+        )
+        return 1
+    choices = [
+        questionary.Choice(
+            title=(
+                f"{row['run_dir']} — {_model_name_for_cli(row['model'])}, "
+                f"rho={row['rho']:g}, eta={row['eta']:g}, semilla={row['seed']}"
+            ),
+            value=str(row["run_dir"]),
+        )
+        for _, row in rows.iterrows()
+    ]
+    selected = questionary.checkbox(
+        "Elegí una o más corridas a animar (se reutiliza su dynamic.txt):",
+        choices=choices,
+    ).ask()
+    if not selected:
+        return 1
+    output_format = questionary.select(
+        "Formato de animación:",
+        choices=[
+            questionary.Choice("GIF y MP4", value="both"),
+            questionary.Choice("Solo MP4", value="mp4"),
+            questionary.Choice("Solo GIF", value="gif"),
+        ],
+    ).ask()
+    if output_format is None:
+        return 1
+    code = 0
+    for run_dir in selected:
+        argv = ["animation", "--batch", batch, "--run-dir", run_dir, "--format", output_format]
+        print("python simulation/main.py " + " ".join(argv))
+        code = max(code, main(argv))
+    return code
+
+
+def _model_name_for_cli(model: str) -> str:
+    return "Vicsek" if str(model) == "vicsek" else "Votante"
+
+
+def _interactive_outputs(batch: str | None = None) -> int:
+    products = questionary.checkbox(
+        "¿Qué resultados querés generar desde datos existentes?",
+        choices=[
+            questionary.Choice("(b) Evolución temporal de va(t) y comienzo estacionario", value="time-series"),
+            questionary.Choice("(c) Polarización estacionaria vs. ruido eta", value="polarization-vs-noise"),
+            questionary.Choice("(d) Evolución y valor estacionario del cluster gigante S", value="clusters"),
+            questionary.Choice("(e) Polarización va vs. componente gigante S", value="polarization-vs-cluster"),
+            questionary.Choice("Animaciones GIF/MP4 de corridas con dynamic.txt", value="animation"),
+            questionary.Choice("Gráfico HTML interactivo para explorar resultados", value="interactive-chart"),
+            questionary.Choice("(g) Comparación de tiempos del CIM", value="cim-comparison"),
+        ],
+    ).ask()
+    if not products:
+        return 1
+    figure_products = {
+        "time-series",
+        "polarization-vs-noise",
+        "clusters",
+        "polarization-vs-cluster",
+    }
+    analysis_products = {*figure_products, "interactive-chart"}
+    analysis_batch = batch
+    if analysis_products.intersection(products) and analysis_batch is None:
+        analysis_batch = _choose_batch(
+            "Elegí el lote con observables para los gráficos:",
+            need_runs=True,
+        )
+        if analysis_batch is None:
+            return 1
+    animation_batch = batch
+    if "animation" in products and animation_batch is None:
+        animation_batch = _choose_batch(
+            "Elegí el lote que contiene dynamic.txt:",
+            need_dynamic=True,
+        )
+        if animation_batch is None:
+            return 1
+    cim_batch = None
+    if "cim-comparison" in products:
+        cim_batch = _choose_batch(
+            "Elegí el lote que contiene los tiempos del CIM:",
+            need_cim=True,
+        )
+        if cim_batch is None:
+            return 1
+    compare = False
+    if figure_products.intersection(products):
+        compare = bool(
+            questionary.confirm(
+                "¿Superponer Vicsek y Votante cuando ambos estén en el lote?",
+                default=True,
+            ).ask()
+        )
+    code = 0
+    for product in products:
+        if product == "animation":
+            code = max(code, _interactive_animations(str(animation_batch)))
+            continue
+        selected_batch = cim_batch if product == "cim-comparison" else analysis_batch
+        argv = [product, "--batch", str(selected_batch)]
+        if compare and product in figure_products:
+            argv.append("--compare")
+        if product == "cim-comparison":
+            tp1 = _ask_tp1_csv()
+            if tp1 is not None:
+                argv.extend(["--tp1", str(tp1)])
+        print("python simulation/main.py " + " ".join(argv))
+        code = max(code, main(argv))
+    return code
+
+
+def _ask_tp1_csv() -> Path | None:
+    raw = questionary.text(
+        "CSV con tiempos del TP1 para la comparación (Enter para graficar solo TP2):",
+        default="",
+    ).ask()
+    if not raw:
+        return None
+    path = Path(raw).expanduser()
+    if not path.is_file():
+        print(f"warning: no existe {path}; se graficará solamente TP2", file=sys.stderr)
+        return None
+    return path
+
+
+def _generate_assignment_outputs(
+    analysis_batch: str,
+    animation_batch: str,
+    cim_batch: str,
+    *,
+    tp1: Path | None,
+) -> int:
+    fig_dir = make_batch("figures", "tp-completo")
+    code = 0
+    for product in (
+        "time-series",
+        "polarization-vs-noise",
+        "clusters",
+        "polarization-vs-cluster",
+    ):
+        argv = [product, "--batch", analysis_batch, "--fig-dir", str(fig_dir), "--compare"]
+        print("python simulation/main.py " + " ".join(argv))
+        code = max(code, main(argv))
+
+    animation_argv = ["animation", "--batch", animation_batch, "--talk", "--format", "both"]
+    print("python simulation/main.py " + " ".join(animation_argv))
+    code = max(code, main(animation_argv))
+
+    cim_argv = ["cim-comparison", "--batch", cim_batch, "--fig-dir", str(fig_dir)]
+    if tp1 is not None:
+        cim_argv.extend(["--tp1", str(tp1)])
+    print("python simulation/main.py " + " ".join(cim_argv))
+    code = max(code, main(cim_argv))
+    print(f"Figuras del TP guardadas en: {fig_dir}")
+    return code
+
+
+def _existing_assignment_batches() -> tuple[str, str, str] | None:
+    analysis = _choose_batch(
+        "Lote del barrido completo (observables para b–f):",
+        need_runs=True,
+    )
+    if analysis is None:
+        return None
+    animations = _choose_batch(
+        "Lote de las 24 corridas animables (dynamic.txt):",
+        need_dynamic=True,
+    )
+    if animations is None:
+        return None
+    cim = _choose_batch(
+        "Lote del benchmark del CIM:",
+        need_cim=True,
+    )
+    if cim is None:
+        return None
+    return analysis, animations, cim
+
+
+def _interactive_all() -> int:
+    source = questionary.select(
+        "¿Cómo querés hacer todos los puntos del enunciado?",
+        choices=[
+            questionary.Choice(
+                "Reutilizar datos existentes — no vuelve a simular",
+                value="existing",
+            ),
+            questionary.Choice(
+                "Ejecutar todo desde cero — barrido, animaciones y benchmark",
+                value="scratch",
+            ),
+        ],
+    ).ask()
+    if source is None:
+        return 1
+
+    if source == "existing":
+        batches = _existing_assignment_batches()
+        if batches is None:
+            return 1
+        analysis, animations, cim = batches
+    else:
+        if not _confirm_production():
+            return 1
+        print("Etapa 1/3: barrido productivo.")
+        analysis_path = _generate_production_data(confirm=False)
+        if analysis_path is None:
+            return 1
+        print("Etapa 2/3: corridas para animaciones.")
+        animations_path = _generate_talk_data()
+        print("Etapa 3/3: benchmark del CIM.")
+        cim_path = _generate_cim_data()
+        analysis, animations, cim = analysis_path.name, animations_path.name, cim_path.name
+
+    tp1 = _ask_tp1_csv()
+    if tp1 is None:
+        print(
+            "warning: sin datos del TP1, el punto (g) mostrará los tiempos del TP2 pero no la comparación completa",
+            file=sys.stderr,
+        )
+    return _generate_assignment_outputs(analysis, animations, cim, tp1=tp1)
+
+
 def interactive() -> int:
     action = questionary.select(
-        "What do you want to do?",
-        choices=["run Java", "ingest", "fig-b", "fig-c", "fig-d", "fig-e", "fig-g", "animate --talk"],
+        "Flujo del TP2 — ¿qué querés hacer?",
+        choices=[
+            questionary.Choice(
+                "1. Generar datos — barrido, animaciones, CIM o corrida personalizada",
+                value="data",
+            ),
+            questionary.Choice(
+                "2. Generar resultados — elegir gráficos/animaciones desde datos existentes",
+                value="results",
+            ),
+            questionary.Choice(
+                "3. Hacer todo el TP — puntos (a) a (g)",
+                value="all",
+            ),
+        ],
     ).ask()
     if action is None:
         return 1
-    if action == "run Java":
-        extra = questionary.text("Java args (after --)").ask() or ""
-        argv = ["run", "--", *extra.split()]
-    elif action == "ingest":
-        argv = ["ingest"]
-    elif action == "animate --talk":
-        argv = ["animate", "--talk"]
-    else:
-        compare = questionary.confirm("Overlay both models (--compare)?", default=True).ask()
-        argv = [action]
-        if compare:
-            argv.append("--compare")
-    print("python simulation/main.py " + " ".join(argv))
-    return main(argv)
+    if action == "data":
+        return _interactive_generate_data()
+    if action == "results":
+        return _interactive_outputs()
+    return _interactive_all()
 
 
 def main(argv: list[str] | None = None) -> int:
     argv = sys.argv[1:] if argv is None else list(argv)
     parser = _build_parser()
-    if not argv:
-        return interactive()
-    ns = parser.parse_args(argv)
-    if not getattr(ns, "cmd", None):
-        return interactive()
     try:
+        if not argv:
+            return interactive()
+        ns = parser.parse_args(argv)
+        if not getattr(ns, "cmd", None):
+            return interactive()
         return int(ns.func(ns))
     except (FileNotFoundError, ValueError, RuntimeError) as exc:
         print(f"error: {exc}", file=sys.stderr)

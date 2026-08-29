@@ -4,12 +4,14 @@ import numpy as np
 import pandas as pd
 
 from src.animate import (
+    AnimateOpts,
     DISPLAY_ARROW_FRAC,
     TALK_ANIMATIONS,
     TALK_CLUSTER_RHOS,
     TALK_RHOS,
     display_uv,
     match_talk,
+    run,
     theta,
 )
 
@@ -22,6 +24,23 @@ def test_display_uv_keeps_direction_scales_length():
     ux, uy = display_uv([0.0], [-0.03], L)
     assert abs(ux[0]) < 1e-12
     assert abs(uy[0] + L * DISPLAY_ARROW_FRAC) < 1e-12
+
+
+def test_animation_writes_gif_with_pillow(tmp_path):
+    frames = [
+        (0, np.array([[1.0, 1.0, 0.03, 0.0]])),
+        (1, np.array([[1.03, 1.0, 0.0, 0.03]])),
+    ]
+    paths = run(
+        frames,
+        L=10,
+        dest=tmp_path / "flock.gif",
+        opts=AnimateOpts(stride=1, fps=2, output_format="gif"),
+    )
+    assert len(paths) == 1
+    path = paths[0]
+    assert path.suffix == ".gif"
+    assert path.stat().st_size > 0
 
 
 def test_quadrants_and_wrap():

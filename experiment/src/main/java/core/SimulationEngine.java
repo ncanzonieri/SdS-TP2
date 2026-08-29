@@ -105,7 +105,6 @@ public class SimulationEngine {
             newAngles[idx] = theta + noise();
         }
 
-        // Recien aca se mutan las particulas: nueva posicion (con wrap-around
         // Ecuacion (1): primero se mueve con theta(t); luego se asigna theta(t+1).
         double v = params.getV();
         int L = params.getL();
