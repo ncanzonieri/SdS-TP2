@@ -113,6 +113,27 @@ def test_atol_changes_onset():
         assert tight.status == "never"
 
 
+def test_ensemble_auto_forces_model_t0_when_T_is_long_enough():
+    index = pd.DataFrame(
+        [
+            {**_index_row("vicsek-long"), "model": "vicsek", "T": 500},
+            {**_index_row("votante-short"), "model": "votante", "T": 500, "run_dir": "vshort"},
+            {**_index_row("votante-long"), "model": "votante", "T": 5000, "run_dir": "vlong"},
+        ]
+    )
+
+    def load(_row):
+        return _series(t_end=5000)
+
+    onset, _agg = ensemble(index, load, Detector(window=20, atol=0.02, rtol=0.05, t_min=10, sustain=3))
+    by_dir = onset.set_index("run_dir")
+    assert by_dir.loc["vicsek-long", "t_onset_va"] == 200
+    assert by_dir.loc["vicsek-long", "status_va"] == "forced"
+    assert by_dir.loc["vshort", "status_va"] != "forced"
+    assert by_dir.loc["vlong", "t_onset_va"] == 2500
+    assert by_dir.loc["vlong", "status_va"] == "forced"
+
+
 def test_ensemble_n1_no_std():
     index = pd.DataFrame([_index_row("r1")])
     frame = _series()

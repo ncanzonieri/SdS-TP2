@@ -19,6 +19,7 @@ except ImportError:
     imageio_ffmpeg = None
 
 from src.io import rho_close
+from src.paths import ensure_dir
 
 TALK_MODELS = ("vicsek", "votante")
 TALK_RHOS = (2.0, 4.0, 8.0)
@@ -90,7 +91,7 @@ def run(
     if not sampled:
         raise ValueError("no frames to animate")
 
-    dest.parent.mkdir(parents=True, exist_ok=True)
+    ensure_dir(dest.parent)
     t0, xy0 = sampled[0]
     x, y, vx, vy = xy0[:, 0], xy0[:, 1], xy0[:, 2], xy0[:, 3]
     c = theta(vx, vy)

@@ -2,6 +2,7 @@ import sys
 from pathlib import Path
 from unittest.mock import patch
 
+import pytest
 import matplotlib
 
 matplotlib.use("Agg")
@@ -21,6 +22,7 @@ from src.cli import (
     main,
 )
 from src.io import ingest
+from src.limits import compute_s_limits
 from tests.conftest import FIXTURE_BATCH
 
 
@@ -45,10 +47,32 @@ def test_fig_c_and_b_write_files(tmp_path):
             "1",
         ]
     ) == 0
-    assert (figs / "fig-c-vicsek.png").is_file()
-    assert (figs / "fig-c-votante.png").is_file()
-    assert (figs / "fig-c-vicsek.pdf").is_file()
-    assert not (figs / "fig-c.png").exists()
+    assert (figs / "c_va_vs_eta_vicsek.png").is_file()
+    assert (figs / "c_va_vs_eta_votante.png").is_file()
+    assert not (figs / "c_va_vs_eta_vicsek.pdf").exists()
+    assert not (figs / "c_va_vs_eta.png").exists()
+    compared = tmp_path / "figs-compare"
+    assert main(
+        [
+            "fig-c",
+            "--out",
+            str(FIXTURE_BATCH),
+            "--cache-dir",
+            str(cache),
+            "--fig-dir",
+            str(compared),
+            "--window",
+            "3",
+            "--t-min",
+            "0",
+            "--sustain",
+            "1",
+            "--compare",
+        ]
+    ) == 0
+    assert (compared / "f_va_vs_eta.png").is_file()
+    assert (compared / "c_va_vs_eta_vicsek.png").is_file()
+    assert (compared / "c_va_vs_eta_votante.png").is_file()
     bdir = tmp_path / "figb"
     assert main(
         [
@@ -69,8 +93,8 @@ def test_fig_c_and_b_write_files(tmp_path):
             "va",
         ]
     ) == 0
-    assert (bdir / "fig-b-vicsek.png").stat().st_size > 0
-    assert not (bdir / "fig-b.png").exists()
+    assert (bdir / "b_va_t_vicsek.png").stat().st_size > 0
+    assert not (bdir / "f_va_t.png").exists()
 
 
 def test_fig_d_time_without_rho(tmp_path):
@@ -96,8 +120,8 @@ def test_fig_d_time_without_rho(tmp_path):
             "1",
         ]
     ) == 0
-    assert (figs / "fig-d-S-t-vicsek.png").is_file()
-    assert not (figs / "fig-d-S-t.png").exists()
+    assert (figs / "d_S_t_vicsek.png").is_file()
+    assert not (figs / "d_S_t.png").exists()
 
 
 def test_ingest_does_not_cache_onset(tmp_path):
@@ -139,6 +163,8 @@ def test_animate_rho_and_runs_are_applied(tmp_path):
         code = main(
             [
                 "animate",
+                "--anim",
+                "gif",
                 "--rho",
                 "4",
                 "--out",
@@ -155,6 +181,8 @@ def test_animate_rho_and_runs_are_applied(tmp_path):
         code = main(
             [
                 "animate",
+                "--anim",
+                "gif",
                 "--runs",
                 "vicsek_rho2_eta0_T10_seed1",
                 "--out",
@@ -175,9 +203,107 @@ def test_fig_g_parser_has_no_steady_flags():
     assert ns.tp1 is None
 
 
-def test_animate_format_defaults_to_both():
+def test_invalid_figs_value_is_rejected():
+    with pytest.raises(SystemExit):
+        _build_parser().parse_args(["fig-c", "--figs", "jpeg"])
+
+
+def test_figs_both_writes_pdf(tmp_path):
+    cache = tmp_path / "cache"
+    figs = tmp_path / "figs"
+    ingest(FIXTURE_BATCH, cache)
+    assert (
+        main(
+            [
+                "fig-c",
+                "--out",
+                str(FIXTURE_BATCH),
+                "--cache-dir",
+                str(cache),
+                "--fig-dir",
+                str(figs),
+                "--figs",
+                "both",
+                "--window",
+                "3",
+                "--t-min",
+                "0",
+                "--sustain",
+                "1",
+            ]
+        )
+        == 0
+    )
+    assert (figs / "c_va_vs_eta_vicsek.png").is_file()
+    assert (figs / "c_va_vs_eta_vicsek.pdf").is_file()
+
+
+def test_animate_defaults_skip_animations():
     ns = _build_parser().parse_args(["animate"])
-    assert ns.format == "both"
+    assert ns.anim == "none"
+    assert ns.format is None
+    assert ns.figs == "png"
+
+
+def test_anim_none_skips_without_reading_positions(tmp_path):
+    with patch("src.cli._animate") as animate, patch("src.cli._load_index") as load:
+        assert main(["animate", "--out", str(FIXTURE_BATCH), "--cache-dir", str(tmp_path)]) == 0
+    animate.assert_not_called()
+    load.assert_not_called()
+
+
+def test_explicit_anim_none_wins_over_format_alias(tmp_path):
+    with patch("src.cli._animate") as animate, patch("src.cli._load_index") as load:
+        assert (
+            main(
+                [
+                    "animate",
+                    "--anim",
+                    "none",
+                    "--format",
+                    "gif",
+                    "--out",
+                    str(FIXTURE_BATCH),
+                    "--cache-dir",
+                    str(tmp_path),
+                ]
+            )
+            == 0
+        )
+    animate.assert_not_called()
+    load.assert_not_called()
+
+
+def test_fig_b_limits_use_the_full_index_not_the_b_slice(tmp_path):
+    cache = tmp_path / "cache"
+    figs = tmp_path / "figs"
+    ingest(FIXTURE_BATCH, cache)
+    with patch("src.cli.compute_s_limits", wraps=compute_s_limits) as compute:
+        assert (
+            main(
+                [
+                    "fig-b",
+                    "--out",
+                    str(FIXTURE_BATCH),
+                    "--cache-dir",
+                    str(cache),
+                    "--fig-dir",
+                    str(figs),
+                    "--window",
+                    "3",
+                    "--t-min",
+                    "0",
+                    "--sustain",
+                    "1",
+                    "--series",
+                    "va",
+                ]
+            )
+            == 0
+        )
+    index = compute.call_args[0][0]
+    assert len(index) > 1
+    assert {float(rho) for rho in index["rho"]} != {4.0}
 
 
 def test_cmd_all_shares_prepare_path(tmp_path):
@@ -203,11 +329,11 @@ def test_cmd_all_shares_prepare_path(tmp_path):
         )
         == 0
     )
-    assert (figs / "fig-c-vicsek.png").is_file()
-    assert (figs / "fig-d-S-t-vicsek.png").is_file()
-    assert (figs / "fig-d-S-eta-vicsek.png").is_file()
-    assert (figs / "fig-e-vicsek.png").is_file()
-    assert (figs / "fig-g.png").is_file()
+    assert (figs / "c_va_vs_eta_vicsek.png").is_file()
+    assert (figs / "d_S_t_vicsek.png").is_file()
+    assert (figs / "d_S_vs_eta_vicsek.png").is_file()
+    assert (figs / "e_va_vs_S_vicsek.png").is_file()
+    assert (figs / "g_cim_times.png").is_file()
 
 
 def test_assignment_data_profiles_match_frozen_plan():

@@ -12,13 +12,20 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import plotly.express as px
+from matplotlib.cm import ScalarMappable
+from matplotlib.colors import Normalize
+from matplotlib.lines import Line2D
 
 from src.aggregate import USABLE
 from src.io import rho_close
+from src.limits import FamilyLimits, cover, family_limits, n_min_from, stationary_samples, temporal_samples
+from src.paths import ensure_dir
 
 GENERAL_RHOS = (2.0, 4.0, 8.0)
 CLUSTER_RHOS = GENERAL_RHOS
 CHARACTERISTIC_ETAS = (0.5, 3.5, 6.0)
+FIG_CHOICES = ("png", "pdf", "both", "none")
+_FIG_FORMATS: frozenset[str] = frozenset({"png"})
 
 CURVE_COLORS = [
     "#1f77b4",
@@ -49,6 +56,29 @@ RHO_MARKER = {
     4.0: "^",
     8.0: "P",
 }
+VA_YLIM = (0.0, 1.02)
+ETA_NORM = Normalize(vmin=0.0, vmax=6.0)
+ETA_CMAP = plt.colormaps["viridis"]
+
+
+def parse_fig_formats(spec: str) -> frozenset[str]:
+    if spec not in FIG_CHOICES:
+        raise ValueError(f"invalid --figs {spec!r}; expected {', '.join(FIG_CHOICES)}")
+    if spec == "both":
+        return frozenset({"png", "pdf"})
+    if spec == "none":
+        return frozenset()
+    return frozenset({spec})
+
+
+def set_fig_formats(spec: str) -> frozenset[str]:
+    global _FIG_FORMATS
+    _FIG_FORMATS = parse_fig_formats(spec)
+    return _FIG_FORMATS
+
+
+def fig_formats() -> frozenset[str]:
+    return _FIG_FORMATS
 
 
 def apply_style() -> None:
@@ -70,9 +100,10 @@ def apply_style() -> None:
 
 
 def save(fig: plt.Figure, stem: Path) -> None:
-    stem.parent.mkdir(parents=True, exist_ok=True)
-    fig.savefig(stem.parent / f"{stem.name}.png", bbox_inches="tight")
-    fig.savefig(stem.parent / f"{stem.name}.pdf", bbox_inches="tight")
+    ensure_dir(stem.parent)
+    formats = fig_formats()
+    for ext in sorted(formats):
+        fig.savefig(stem.parent / f"{stem.name}.{ext}", bbox_inches="tight")
     plt.close(fig)
 
 
@@ -86,6 +117,8 @@ def save_curve_panel(
     xlim: tuple[float, float] | None = None,
     ylim: tuple[float, float] | None = None,
     legend_kwargs: dict | None = None,
+    clip_s: FamilyLimits | None = None,
+    clip_axis: str = "y",
 ) -> Path:
     apply_style()
     fig, ax = plt.subplots(figsize=figsize)
@@ -96,6 +129,8 @@ def save_curve_panel(
         ax.set_xlim(*xlim)
     if ylim is not None:
         ax.set_ylim(*ylim)
+    if clip_s is not None:
+        _apply_s_clip(ax, clip_s, axis=clip_axis)
     ax.legend(**(legend_kwargs or {"loc": "best"}))
     save(fig, stem)
     return stem
@@ -123,17 +158,93 @@ def _line(model: str) -> str:
     return MODEL_LINE.get(str(model), "-")
 
 
+def _is_vicsek(model) -> bool:
+    return str(model) == "vicsek"
+
+
+def _fill_kwargs(model, color: str) -> dict:
+    if _is_vicsek(model):
+        return {"markerfacecolor": color, "markeredgecolor": color}
+    return {"markerfacecolor": "none", "markeredgecolor": color}
+
+
 def _model_name(model: str) -> str:
     return "Vicsek" if str(model) == "vicsek" else "Votante"
 
 
-def _curve_tag(model, rho=None, eta=None) -> str:
-    parts = [str(model)]
+def file_stem(point: str, kind: str, *, model=None, rho=None, eta=None) -> str:
+    parts = [point, kind]
+    if model is not None:
+        parts.append(str(model))
     if rho is not None:
         parts.append(f"rho{float(rho):g}")
     if eta is not None:
         parts.append(f"eta{float(eta):g}")
-    return "-".join(parts)
+    return "_".join(parts)
+
+
+def _yerr_col(frame: pd.DataFrame, prefix: str) -> str:
+    std = f"{prefix}_ss_std"
+    if std in frame.columns and frame[std].notna().any():
+        return std
+    return f"{prefix}_ss_err"
+
+
+def _ax_s_values(ax, axis: str) -> np.ndarray:
+    values: list[float] = []
+    for line in ax.lines:
+        data = line.get_ydata() if axis == "y" else line.get_xdata()
+        values.extend(np.ravel(np.asarray(data, dtype=float)))
+    for collection in ax.collections:
+        offs = collection.get_offsets()
+        if len(offs):
+            values.extend(np.asarray(offs[:, 1 if axis == "y" else 0], dtype=float))
+        get_segments = getattr(collection, "get_segments", None)
+        if get_segments is None:
+            continue
+        for segment in get_segments():
+            arr = np.asarray(segment, dtype=float)
+            if arr.size == 0:
+                continue
+            values.extend(arr[:, 1 if axis == "y" else 0])
+    return np.asarray(values, dtype=float)
+
+
+def _apply_s_clip(ax, limits: FamilyLimits, *, axis: str) -> FamilyLimits:
+    current = limits
+    for _ in range(6):
+        values = _ax_s_values(ax, axis)
+        widened = cover(current, values)
+        if axis == "y":
+            ax.set_ylim(widened.lo, widened.hi)
+        else:
+            ax.set_xlim(widened.lo, widened.hi)
+        if widened.lims == current.lims:
+            leftover = values[np.isfinite(values)]
+            if leftover.size and (leftover.min() < widened.lo or leftover.max() > widened.hi):
+                current = cover(widened, leftover)
+                continue
+            return widened
+        current = widened
+    raise ValueError(f"S {axis}-axis still clips data after expanding: {current.describe('S')}")
+
+
+def _stationary_limits(agg: pd.DataFrame, limits: FamilyLimits | None) -> FamilyLimits:
+    if limits is not None:
+        return limits
+    return family_limits(stationary_samples(agg), n_min_from(agg))
+
+
+def _temporal_limits(index, load_series, limits: FamilyLimits | None) -> FamilyLimits:
+    if limits is not None:
+        return limits
+    return family_limits(temporal_samples(index, load_series), n_min_from(index))
+
+
+def _e_xlim(limits: FamilyLimits) -> tuple[float, float]:
+    span = max(limits.hi - limits.lo, 1.0 / limits.n_min)
+    extra = max(0.08 * span, 1.0 / limits.n_min)
+    return (limits.lo, limits.hi + extra)
 
 
 def filter_rhos(frame: pd.DataFrame, wanted: list[float] | None) -> pd.DataFrame:
@@ -225,7 +336,7 @@ def _plot_b_curve(ax, row, data, col, onset_col, status_col, color, compare) -> 
         ax.axvline(float(t_on), color=color, linestyle="--", linewidth=1.0, alpha=0.75)
 
 
-def _save_b_figure(stem: Path, wanted: list[str], items, load_series, compare) -> Path:
+def _save_b_figure(stem: Path, wanted: list[str], items, load_series, compare, s_limits=None) -> Path:
     apply_style()
     n_ax = len(wanted)
     fig, axes = plt.subplots(n_ax, 1, sharex=True, figsize=(9, 4.5 * n_ax))
@@ -238,30 +349,64 @@ def _save_b_figure(stem: Path, wanted: list[str], items, load_series, compare) -
         for row, color in items:
             _plot_b_curve(ax, row, load_series(row), col, onset_col, status_col, color, compare)
         ax.set_ylabel(r"$v_a(t)$" if col == "va" else r"$S(t)$")
-        ax.set_ylim(0, 1.02)
+        if col == "va":
+            ax.set_ylim(*VA_YLIM)
+        elif s_limits is not None:
+            _apply_s_clip(ax, s_limits, axis="y")
         ax.legend(loc="best", fontsize=8, ncols=2 if len(items) > 6 else 1)
     axes[-1].set_xlabel(r"Tiempo $t$")
     save(fig, stem)
     return stem
 
 
-def draw_b(index, load_series, onset, *, series, fig_dir, compare) -> list[Path]:
+def draw_b(index, load_series, onset, *, series, fig_dir, compare, compare_dir=None, s_limits=None) -> list[Path]:
     wanted = [s.strip() for s in series.split(",")]
     merged = index.merge(_onset_cols(onset), on="run_dir", how="left")
+    if "S" in wanted:
+        s_limits = _temporal_limits(merged, load_series, s_limits)
+    overlay = compare_dir or fig_dir
     stems: list[Path] = []
     if compare:
-        items = _b_items(merged)
-        stems.append(_save_b_figure(fig_dir / "fig-b", wanted, items, load_series, True))
-        for row, color in items:
-            stem = fig_dir / f"fig-b-{_curve_tag(row['model'], row['rho'], row['eta'])}"
-            stems.append(_save_b_figure(stem, wanted, [(row, color)], load_series, True))
-        return stems
+        stems.append(
+            _save_b_figure(
+                overlay / file_stem("f" if compare_dir else "b", "va_t" if wanted == ["va"] else "S_t"),
+                wanted,
+                _b_items(merged),
+                load_series,
+                True,
+                s_limits,
+            )
+        )
     for model, chunk in merged.groupby("model", sort=True):
         items = _b_items(chunk)
-        stems.append(_save_b_figure(fig_dir / f"fig-b-{model}", wanted, items, load_series, False))
+        stems.append(
+            _save_b_figure(
+                fig_dir / file_stem("b", "va_t" if wanted == ["va"] else "S_t", model=model),
+                wanted,
+                items,
+                load_series,
+                compare,
+                s_limits,
+            )
+        )
         for row, color in items:
-            stem = fig_dir / f"fig-b-{_curve_tag(row['model'], row['rho'], row['eta'])}"
-            stems.append(_save_b_figure(stem, wanted, [(row, color)], load_series, False))
+            stems.append(
+                _save_b_figure(
+                    fig_dir
+                    / file_stem(
+                        "b",
+                        "va_t" if wanted == ["va"] else "S_t",
+                        model=row["model"],
+                        rho=row["rho"],
+                        eta=row["eta"],
+                    ),
+                    wanted,
+                    [(row, color)],
+                    load_series,
+                    compare,
+                    s_limits,
+                )
+            )
     return stems
 
 
@@ -270,13 +415,15 @@ def _plot_errorbar_curve(ax, chunk, ycol, yerr, model, rho) -> None:
     y = chunk[ycol].to_numpy()
     err = chunk[yerr].to_numpy()
     finite_err = np.isfinite(err)
+    color = _rho_color(float(rho))
     ax.plot(
         chunk["eta"],
         y,
         linestyle=_line(str(model)),
         marker=_marker(float(rho)),
-        color=_rho_color(float(rho)),
+        color=color,
         label=f"{_model_name(model)} | ρ={float(rho):g}",
+        **_fill_kwargs(model, color),
     )
     if np.any(finite_err):
         ax.errorbar(
@@ -284,7 +431,7 @@ def _plot_errorbar_curve(ax, chunk, ycol, yerr, model, rho) -> None:
             y[finite_err],
             yerr=err[finite_err],
             fmt="none",
-            ecolor=_rho_color(float(rho)),
+            ecolor=color,
             capsize=4,
             elinewidth=1.2,
         )
@@ -301,9 +448,14 @@ def _errorbar_xy(
     yerr: str,
     *,
     fig_dir,
-    stem_prefix,
+    point: str,
+    kind: str,
     ylabel,
     expected_rhos,
+    compare: bool = False,
+    compare_dir=None,
+    ylim: tuple[float, float] | None = VA_YLIM,
+    clip_s: FamilyLimits | None = None,
 ) -> list[Path]:
     present = [float(r) for r in agg["rho"].unique()]
     warn_missing_rhos(present, expected_rhos)
@@ -311,13 +463,24 @@ def _errorbar_xy(
         figsize=(7, 4.5),
         xlabel=r"Ruido $\eta$",
         ylabel=ylabel,
-        ylim=(0, 1.02),
+        ylim=ylim,
+        clip_s=clip_s,
+        clip_axis="y",
     )
+    overlay = compare_dir or fig_dir
     stems: list[Path] = []
+    if compare:
+        stems.append(
+            save_curve_panel(
+                overlay / file_stem("f" if compare_dir else point, kind),
+                lambda ax: _draw_errorbar_frame(ax, agg, ycol, yerr),
+                **kw,
+            )
+        )
     for model, model_chunk in agg.groupby("model", sort=True):
         stems.append(
             save_curve_panel(
-                fig_dir / f"{stem_prefix}-{_curve_tag(model)}",
+                fig_dir / file_stem(point, kind, model=model),
                 lambda ax, chunk=model_chunk: _draw_errorbar_frame(ax, chunk, ycol, yerr),
                 **kw,
             )
@@ -325,7 +488,7 @@ def _errorbar_xy(
         for rho, rho_chunk in model_chunk.groupby("rho", sort=True):
             stems.append(
                 save_curve_panel(
-                    fig_dir / f"{stem_prefix}-{_curve_tag(model, rho)}",
+                    fig_dir / file_stem(point, kind, model=model, rho=rho),
                     lambda ax, chunk=rho_chunk: _draw_errorbar_frame(ax, chunk, ycol, yerr),
                     **kw,
                 )
@@ -333,15 +496,21 @@ def _errorbar_xy(
     return stems
 
 
-def draw_c(agg, *, fig_dir, compare=False) -> list[Path]:
+def draw_c(agg, *, fig_dir, compare=False, compare_dir=None, s_limits=None) -> list[Path]:
+    if (agg.get("n_runs_va", pd.Series(dtype=float)) < 5).any():
+        print("warning: (c) error bars use seed-to-seed σ; some points have n_runs_va < 5", file=sys.stderr)
     return _errorbar_xy(
         agg,
         "va_ss",
-        "va_ss_err",
+        _yerr_col(agg, "va"),
         fig_dir=fig_dir,
-        stem_prefix="fig-c",
+        point="c",
+        kind="va_vs_eta",
         ylabel=r"Polarización estacionaria $\langle v_a \rangle$",
         expected_rhos=GENERAL_RHOS,
+        compare=compare,
+        compare_dir=compare_dir,
+        ylim=VA_YLIM,
     )
 
 
@@ -387,15 +556,17 @@ def _plot_d_time_curve(ax, curve, compare) -> None:
     label = f"{_model_name(model)} | ρ={rho:g} | η={curve['eta']:g}"
     if curve["t_on"] is not None:
         label += f" | t₀={curve['t_on']:g}"
+    color = _rho_color(rho)
     ax.plot(
         t,
         curve["mean"],
         linestyle=_line(model) if compare else "-",
-        color=_rho_color(rho),
+        color=color,
         marker=_marker(rho),
         markevery=max(len(t) // 12, 1),
         alpha=0.9,
         label=label,
+        **_fill_kwargs(model, color),
     )
     if curve["t_on"] is not None:
         ax.axvline(curve["t_on"], color=_rho_color(rho), linestyle="--", linewidth=1.0, alpha=0.75)
@@ -406,18 +577,22 @@ def _draw_d_time_frame(ax, curves, compare) -> None:
         _plot_d_time_curve(ax, curve, compare)
 
 
-def draw_d_time(index, load_series, onset, *, fig_dir, compare) -> list[Path]:
+def draw_d_time(index, load_series, onset, *, fig_dir, compare, compare_dir=None, s_limits=None) -> list[Path]:
     merged = index.merge(_onset_cols(onset), on="run_dir", how="left")
     present = [float(r) for r in merged["rho"].unique()]
     warn_missing_rhos(present, CLUSTER_RHOS)
     curves = _collect_d_time_curves(merged, load_series)
+    limits = _temporal_limits(merged, load_series, s_limits)
     stems: list[Path] = []
     panel_kw = dict(
         figsize=(8, 4.5),
         xlabel=r"Tiempo $t$",
         ylabel=r"$S(t)$",
-        ylim=(0, 1.02),
+        ylim=limits.lims,
+        clip_s=limits,
+        clip_axis="y",
     )
+    overlay = compare_dir or fig_dir
 
     def _panel(stem: Path, subset, use_compare: bool) -> Path:
         return save_curve_panel(
@@ -428,78 +603,162 @@ def draw_d_time(index, load_series, onset, *, fig_dir, compare) -> list[Path]:
         )
 
     if compare:
-        stems.append(_panel(fig_dir / "fig-d-S-t", curves, True))
-        for curve in curves:
-            stem = fig_dir / f"fig-d-S-t-{_curve_tag(curve['model'], curve['rho'])}"
-            stems.append(_panel(stem, [curve], True))
-        return stems
+        stems.append(_panel(overlay / file_stem("f" if compare_dir else "d", "S_t"), curves, True))
     for model in sorted({curve["model"] for curve in curves}):
         model_curves = [curve for curve in curves if curve["model"] == model]
-        stems.append(_panel(fig_dir / f"fig-d-S-t-{_curve_tag(model)}", model_curves, False))
+        stems.append(_panel(fig_dir / file_stem("d", "S_t", model=model), model_curves, compare))
         for curve in model_curves:
-            stem = fig_dir / f"fig-d-S-t-{_curve_tag(curve['model'], curve['rho'])}"
-            stems.append(_panel(stem, [curve], False))
+            stems.append(
+                _panel(
+                    fig_dir / file_stem("d", "S_t", model=curve["model"], rho=curve["rho"]),
+                    [curve],
+                    compare,
+                )
+            )
     return stems
 
 
-def draw_d_eta(agg, *, fig_dir, compare=False) -> list[Path]:
+def draw_d_eta(agg, *, fig_dir, compare=False, compare_dir=None, s_limits=None) -> list[Path]:
+    if (agg.get("n_runs_S", pd.Series(dtype=float)) < 5).any():
+        print("warning: (d) error bars use seed-to-seed σ; some points have n_runs_S < 5", file=sys.stderr)
+    limits = _stationary_limits(agg, s_limits)
     return _errorbar_xy(
         agg,
         "S_ss",
-        "S_ss_err",
+        _yerr_col(agg, "S"),
         fig_dir=fig_dir,
-        stem_prefix="fig-d-S-eta",
+        point="d",
+        kind="S_vs_eta",
         ylabel=r"Fracción estacionaria $\langle S \rangle$",
         expected_rhos=CLUSTER_RHOS,
+        compare=compare,
+        compare_dir=compare_dir,
+        ylim=limits.lims,
+        clip_s=limits,
     )
 
 
-def _plot_e_curve(ax, chunk, model, rho) -> None:
+def _add_eta_colorbar(ax) -> None:
+    mapped = ScalarMappable(cmap=ETA_CMAP, norm=ETA_NORM)
+    mapped.set_array([])
+    cbar = ax.figure.colorbar(mapped, ax=ax)
+    cbar.set_label(r"Ruido $\eta$")
+
+
+def _e_legend_handles(frame: pd.DataFrame) -> list[Line2D]:
+    handles: list[Line2D] = []
+    seen: set[tuple[str, float]] = set()
+    for (model, rho), _chunk in frame.groupby(["model", "rho"], sort=True):
+        key = (str(model), float(rho))
+        if key in seen:
+            continue
+        seen.add(key)
+        handles.append(
+            Line2D(
+                [0],
+                [0],
+                linestyle="none",
+                marker=_marker(float(rho)),
+                color="0.25",
+                label=f"{_model_name(model)} | ρ={float(rho):g}",
+                **_fill_kwargs(model, "0.25"),
+            )
+        )
+    return handles
+
+
+def _plot_e_scatter(ax, chunk, model, rho) -> None:
     chunk = chunk.sort_values("eta")
-    ax.plot(
-        chunk["S_ss"],
-        chunk["va_ss"],
-        linestyle=_line(str(model)),
-        marker=_marker(float(rho)),
-        color=_rho_color(float(rho)),
-        label=f"{_model_name(model)} | ρ={float(rho):g}",
-    )
+    x = chunk["S_ss"].to_numpy(dtype=float)
+    y = chunk["va_ss"].to_numpy(dtype=float)
+    etas = chunk["eta"].to_numpy(dtype=float)
+    xerr = chunk[_yerr_col(chunk, "S")].to_numpy(dtype=float)
+    yerr = chunk[_yerr_col(chunk, "va")].to_numpy(dtype=float)
+    colors = ETA_CMAP(ETA_NORM(etas))
+    finite = np.isfinite(x) & np.isfinite(y)
+    if not np.any(finite):
+        return
+    x, y, etas, xerr, yerr, colors = x[finite], y[finite], etas[finite], xerr[finite], yerr[finite], colors[finite]
+    mark = _marker(float(rho))
+    if _is_vicsek(model):
+        ax.scatter(
+            x,
+            y,
+            c=etas,
+            cmap=ETA_CMAP,
+            norm=ETA_NORM,
+            marker=mark,
+            s=46,
+            linewidths=0.8,
+            edgecolors=colors,
+            zorder=3,
+        )
+    else:
+        ax.scatter(
+            x,
+            y,
+            facecolors="none",
+            edgecolors=colors,
+            marker=mark,
+            s=46,
+            linewidths=1.15,
+            zorder=3,
+        )
+    finite_err = np.isfinite(xerr) & np.isfinite(yerr)
+    if np.any(finite_err):
+        ax.errorbar(
+            x[finite_err],
+            y[finite_err],
+            xerr=xerr[finite_err],
+            yerr=yerr[finite_err],
+            fmt="none",
+            ecolor="0.45",
+            elinewidth=1.0,
+            capsize=3,
+            zorder=2,
+        )
 
 
 def _draw_e_frame(ax, frame) -> None:
     for (model, rho), chunk in frame.groupby(["model", "rho"], sort=True):
-        _plot_e_curve(ax, chunk, model, rho)
+        _plot_e_scatter(ax, chunk, model, rho)
 
 
-def draw_e(agg, *, fig_dir, compare=False) -> list[Path]:
+def _save_e_panel(stem: Path, frame: pd.DataFrame, limits: FamilyLimits) -> Path:
+    apply_style()
+    fig, ax = plt.subplots(figsize=(7.2, 6.0))
+    _draw_e_frame(ax, frame)
+    ax.set_xlabel(r"Fracción estacionaria $\langle S \rangle$")
+    ax.set_ylabel(r"Polarización estacionaria $\langle v_a \rangle$")
+    ax.set_xlim(*_e_xlim(limits))
+    ax.set_ylim(*VA_YLIM)
+    _apply_s_clip(ax, limits, axis="x")
+    lo, hi = ax.get_xlim()
+    span = max(hi - lo, 1.0 / limits.n_min)
+    ax.set_xlim(lo, hi + max(0.08 * span, 1.0 / limits.n_min))
+    handles = _e_legend_handles(frame)
+    if handles:
+        ax.legend(handles=handles, loc="best", fontsize=8)
+    _add_eta_colorbar(ax)
+    save(fig, stem)
+    return stem
+
+
+def draw_e(agg, *, fig_dir, compare=False, compare_dir=None, s_limits=None) -> list[Path]:
     present = [float(r) for r in agg["rho"].unique()]
     warn_missing_rhos(present, CLUSTER_RHOS)
-    kw = dict(
-        figsize=(6.5, 6),
-        xlabel=r"Fracción estacionaria $\langle S \rangle$",
-        ylabel=r"Polarización estacionaria $\langle v_a \rangle$",
-        xlim=(0, 1.02),
-        ylim=(0, 1.02),
-        legend_kwargs={"loc": "best", "fontsize": 8},
-    )
+    if (agg.get("n_runs_S", pd.Series(dtype=float)) < 5).any() or (agg.get("n_runs_va", pd.Series(dtype=float)) < 5).any():
+        print("warning: (e) error bars use seed-to-seed σ; some points have n_runs < 5", file=sys.stderr)
+    limits = _stationary_limits(agg, s_limits)
+    overlay = compare_dir or fig_dir
     stems: list[Path] = []
     if compare:
-        stems.append(save_curve_panel(fig_dir / "fig-e", lambda ax: _draw_e_frame(ax, agg), **kw))
+        stems.append(_save_e_panel(overlay / file_stem("f" if compare_dir else "e", "va_vs_S"), agg, limits))
     for model, model_chunk in agg.groupby("model", sort=True):
-        stems.append(
-            save_curve_panel(
-                fig_dir / f"fig-e-{_curve_tag(model)}",
-                lambda ax, chunk=model_chunk: _draw_e_frame(ax, chunk),
-                **kw,
-            )
-        )
+        stems.append(_save_e_panel(fig_dir / file_stem("e", "va_vs_S", model=model), model_chunk, limits))
         for rho, rho_chunk in model_chunk.groupby("rho", sort=True):
             stems.append(
-                save_curve_panel(
-                    fig_dir / f"fig-e-{_curve_tag(model, rho)}",
-                    lambda ax, chunk=rho_chunk: _draw_e_frame(ax, chunk),
-                    **kw,
-                )
+                _save_e_panel(fig_dir / file_stem("e", "va_vs_S", model=model, rho=rho), rho_chunk, limits)
             )
     return stems
 
@@ -533,20 +792,20 @@ def draw_g(cim_frames: list[pd.DataFrame], *, fig_dir, tp1: Path | None, tp1_n_c
     ax.set_xlabel(r"Cantidad de partículas $N$")
     ax.set_ylabel("Tiempo medio del CIM (ms)")
     ax.legend(loc="best")
-    stem = fig_dir / "fig-g"
+    stem = fig_dir / file_stem("g", "cim_times")
     save(fig, stem)
     return [stem]
 
 
 def explore_html(agg: pd.DataFrame, path: Path) -> Path:
-    path.parent.mkdir(parents=True, exist_ok=True)
+    ensure_dir(path.parent)
     fig = px.scatter(
         agg,
         x="eta",
         y="va_ss",
         color="model",
         symbol="rho",
-        error_y="va_ss_err",
+        error_y=_yerr_col(agg, "va") if not agg.empty else "va_ss_std",
         hover_data=["rho", "n_runs_va", "S_ss"],
     )
     fig.write_html(path)

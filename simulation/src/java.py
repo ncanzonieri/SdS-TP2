@@ -9,7 +9,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Protocol
 
-from src.paths import make_batch, repo_root
+from src.paths import ensure_dir, make_batch, repo_root
 
 
 class JavaProcess(Protocol):
@@ -121,7 +121,7 @@ def run_engine(
     args = _expand_cli_ranges(list(java_args))
     if not _has_flag(args, "--out"):
         dest = Path(out_dir) if out_dir is not None else make_batch("simulation", root=repo)
-        dest.mkdir(parents=True, exist_ok=True)
+        dest = ensure_dir(dest)
         args = ["--out", str(dest.resolve()), *args]
         out_dir = dest
     else:

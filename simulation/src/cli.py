@@ -20,8 +20,10 @@ from src.io import (
     read_cim_series,
 )
 from src.java import run_engine
-from src.paths import cache_dir, make_batch, output_root, repo_root
+from src.limits import compute_s_limits
+from src.paths import cache_dir, data_dir, ensure_assignment_tree, ensure_dir, make_batch, output_root, point_dir, repo_root
 from src.plot import (
+    FIG_CHOICES,
     default_rhos,
     draw_b,
     draw_c,
@@ -32,6 +34,7 @@ from src.plot import (
     explore_html,
     filter_rhos,
     select_fig_b_runs,
+    set_fig_formats,
 )
 
 GENERAL_RHOS = "2,4,8"
@@ -60,6 +63,18 @@ def _add_global(p: argparse.ArgumentParser) -> None:
     p.add_argument("--cache-dir", type=Path, default=None, help="carpeta del caché de lectura")
     p.add_argument("--fig-dir", type=Path, default=None, help="carpeta donde guardar las figuras")
     p.add_argument("--no-cache", action="store_true", help="releer los TXT aunque exista caché")
+    p.add_argument(
+        "--figs",
+        choices=FIG_CHOICES,
+        default="png",
+        help="formato de las figuras estáticas (default: png)",
+    )
+    p.add_argument(
+        "--anim",
+        choices=("gif", "mp4", "both", "none"),
+        default="none",
+        help="formato de las animaciones del punto (a) (default: none)",
+    )
 
 
 def _add_steady(p: argparse.ArgumentParser) -> None:
@@ -161,9 +176,56 @@ def _png(stem: Path) -> Path:
 
 def _fig_dir(ns: argparse.Namespace, suffix: str) -> Path:
     if ns.fig_dir is not None:
-        ns.fig_dir.mkdir(parents=True, exist_ok=True)
-        return ns.fig_dir
+        return ensure_dir(ns.fig_dir)
+    point = {"fig-b": "b", "fig-c": "c", "fig-d": "d", "fig-e": "e", "fig-g": "g"}.get(suffix, suffix)
+    if point in {"b", "c", "d", "e", "g"}:
+        return point_dir(point)
     return make_batch("figures", suffix)
+
+
+def _compare_dir(ns: argparse.Namespace):
+    if not ns.compare:
+        return None
+    if ns.fig_dir is not None:
+        return ensure_dir(ns.fig_dir)
+    return point_dir("f")
+
+
+def _resolved_anim(ns: argparse.Namespace) -> str:
+    argv = [str(item) for item in getattr(ns, "_argv", [])]
+    explicit = any(item == "--anim" or item.startswith("--anim=") for item in argv)
+    if explicit:
+        return getattr(ns, "anim", "none")
+    fmt = getattr(ns, "format", None)
+    if fmt:
+        return fmt
+    return getattr(ns, "anim", "none")
+
+
+def _print_export_config(ns: argparse.Namespace) -> None:
+    figs = getattr(ns, "figs", "png")
+    anim = _resolved_anim(ns)
+    fig_note = " (figuras salteadas)" if figs == "none" else ""
+    anim_note = " (animaciones salteadas)" if anim == "none" else ""
+    print(f"[config] figs={figs}{fig_note} | anim={anim}{anim_note}")
+
+
+def _apply_export(ns: argparse.Namespace) -> None:
+    if hasattr(ns, "figs"):
+        set_fig_formats(ns.figs)
+    _print_export_config(ns)
+    if getattr(ns, "fig_dir", None) is None:
+        ensure_assignment_tree()
+
+
+def _write_s_limits(temporal, stationary) -> None:
+    dest = ensure_dir(data_dir()) / "s_axis_limits.txt"
+    dest.write_text(
+        temporal.describe("TEMPORAL") + "\n" + stationary.describe("ESTACIONARIA") + "\n",
+        encoding="utf-8",
+    )
+    print(temporal.describe("TEMPORAL"))
+    print(stationary.describe("ESTACIONARIA"))
 
 
 def _runs(ns) -> list[str] | None:
@@ -193,9 +255,20 @@ def _slice_for_kind(kind: str, ns, index, onset, agg):
     return index, onset, agg
 
 
-def _render_kind(kind: str, ns, index, onset, agg) -> list[Path]:
+def _s_limits_for(index, agg):
+    if index.empty or agg.empty:
+        return None, None
+    temporal, stationary = compute_s_limits(index, agg, load_series)
+    _write_s_limits(temporal, stationary)
+    return temporal, stationary
+
+
+def _render_kind(kind: str, ns, index, onset, agg, *, temporal=None, stationary=None) -> list[Path]:
+    if getattr(ns, "figs", "png") == "none":
+        return []
     fig_dir = _fig_dir(ns, f"fig-{kind}")
     compare = bool(ns.compare)
+    compare_dir = _compare_dir(ns)
     if kind == "b":
         return draw_b(
             index,
@@ -204,19 +277,45 @@ def _render_kind(kind: str, ns, index, onset, agg) -> list[Path]:
             series=getattr(ns, "series", "va"),
             fig_dir=fig_dir,
             compare=compare,
+            compare_dir=compare_dir,
+            s_limits=temporal,
         )
     if kind == "c":
-        return draw_c(agg, fig_dir=fig_dir, compare=compare)
+        return draw_c(agg, fig_dir=fig_dir, compare=compare, compare_dir=compare_dir)
     if kind == "d":
         written: list[Path] = []
         panel = getattr(ns, "panel", "both")
         if panel in {"time", "both"}:
-            written.extend(draw_d_time(index, load_series, onset, fig_dir=fig_dir, compare=compare))
+            written.extend(
+                draw_d_time(
+                    index,
+                    load_series,
+                    onset,
+                    fig_dir=fig_dir,
+                    compare=compare,
+                    compare_dir=compare_dir,
+                    s_limits=temporal,
+                )
+            )
         if panel in {"eta", "both"}:
-            written.extend(draw_d_eta(agg, fig_dir=fig_dir, compare=compare))
+            written.extend(
+                draw_d_eta(
+                    agg,
+                    fig_dir=fig_dir,
+                    compare=compare,
+                    compare_dir=compare_dir,
+                    s_limits=stationary,
+                )
+            )
         return written
     if kind == "e":
-        return draw_e(agg, fig_dir=fig_dir, compare=compare)
+        return draw_e(
+            agg,
+            fig_dir=fig_dir,
+            compare=compare,
+            compare_dir=compare_dir,
+            s_limits=stationary,
+        )
     raise ValueError(f"Unknown figure kind {kind!r}")
 
 
@@ -242,17 +341,22 @@ def cmd_ingest(ns: argparse.Namespace) -> int:
 
 
 def cmd_fig(kind: str, ns: argparse.Namespace) -> int:
+    _apply_export(ns)
     index, onset, agg = prepare(ns)
-    index, onset, agg = _slice_for_kind(kind, ns, index, onset, agg)
     if index.empty:
         raise FileNotFoundError("no runs to plot; ingest a Java output tree first")
-    stems = _render_kind(kind, ns, index, onset, agg)
+    temporal, stationary = _s_limits_for(index, agg)
+    index, onset, agg = _slice_for_kind(kind, ns, index, onset, agg)
+    stems = _render_kind(kind, ns, index, onset, agg, temporal=temporal, stationary=stationary)
     for stem in stems:
         print(_png(stem))
     return 0
 
 
 def cmd_fig_g(ns: argparse.Namespace) -> int:
+    _apply_export(ns)
+    if getattr(ns, "figs", "png") == "none":
+        return 0
     frames = [read_cim_series(p) for p in find_cim(_scan_root(ns))]
     stems = draw_g(
         frames,
@@ -267,11 +371,14 @@ def cmd_fig_g(ns: argparse.Namespace) -> int:
 
 
 def cmd_animate(ns: argparse.Namespace) -> int:
+    _apply_export(ns)
+    if _resolved_anim(ns) == "none":
+        return 0
     index = _load_index(ns, rhos=_parse_floats(getattr(ns, "rho", None)), runs=_runs(ns))
     return _animate(index, ns)
 
 
-def _animate(index, ns, *, talk: bool | None = None) -> int:
+def _animate(index, ns, *, talk: bool | None = None, output_format: str | None = None) -> int:
     talk = getattr(ns, "talk", False) if talk is None else talk
     rows = []
     if talk:
@@ -287,14 +394,19 @@ def _animate(index, ns, *, talk: bool | None = None) -> int:
         if index.empty:
             raise FileNotFoundError("no runs with cache index")
         rows = [index.iloc[0]]
-    opts = AnimateOpts(stride=ns.stride, fps=ns.fps, output_format=ns.format)
+    opts = AnimateOpts(
+        stride=ns.stride,
+        fps=ns.fps,
+        output_format=output_format or _resolved_anim(ns),
+    )
     written = 0
     for row in rows:
         dyn = Path(str(row["dynamic_path"]))
         if not dyn.is_file():
             print(f"warning: no dynamic.txt for {row['run_dir']}", file=sys.stderr)
             continue
-        dest_dir = make_batch("animations", str(row["run_dir"]))
+        dest_dir = point_dir("a") / str(row["run_dir"])
+        ensure_dir(dest_dir)
         dest = dest_dir / "flock"
         paths = animate_run(
             iter_dynamic_frames(dyn),
@@ -318,16 +430,21 @@ def cmd_explore(ns: argparse.Namespace) -> int:
 
 
 def cmd_all(ns: argparse.Namespace) -> int:
+    _apply_export(ns)
     index, onset, agg = prepare(ns)
     print(f"ingested {len(index)} runs")
+    temporal, stationary = _s_limits_for(index, agg)
     if not index.empty:
         for kind in ("b", "c", "d", "e"):
             sliced = _slice_for_kind(kind, ns, index, onset, agg)
-            for stem in _render_kind(kind, ns, *sliced):
+            for stem in _render_kind(kind, ns, *sliced, temporal=temporal, stationary=stationary):
                 print(_png(stem))
     cmd_fig_g(ns)
-    if ns.with_animate:
-        _animate(index, ns, talk=True)
+    anim = _resolved_anim(ns)
+    if anim == "none" and ns.with_animate:
+        anim = "gif"
+    if anim != "none":
+        _animate(index, ns, talk=True, output_format=anim)
     return 0
 
 
@@ -432,7 +549,12 @@ def _build_parser() -> argparse.ArgumentParser:
     anim.add_argument("--eta-mid", type=float, default=3.5, help="ruido intermedio del catálogo")
     anim.add_argument("--stride", type=int, default=5, help="usar un frame cada N tiempos")
     anim.add_argument("--fps", type=int, default=20, help="cuadros por segundo del archivo final")
-    anim.add_argument("--format", choices=("gif", "mp4", "both"), default="both", help="formato de salida")
+    anim.add_argument(
+        "--format",
+        choices=("gif", "mp4", "both"),
+        default=None,
+        help="alias de --anim; si ambos están, gana --anim",
+    )
     anim.set_defaults(func=cmd_animate)
 
     exp = sub.add_parser(
@@ -453,7 +575,11 @@ def _build_parser() -> argparse.ArgumentParser:
     _add_global(all_p)
     _add_steady(all_p)
     _add_plot_filters(all_p)
-    all_p.add_argument("--with-animate", action="store_true", help="agregar animaciones de la exposición")
+    all_p.add_argument(
+        "--with-animate",
+        action="store_true",
+        help="si --anim es none, genera GIF del punto (a); preferí --anim gif|mp4|both",
+    )
     all_p.add_argument("--series", default="va", help="serie para la figura b")
     all_p.add_argument("--panel", default="both", help="paneles para la figura d")
     all_p.add_argument("--tp1", type=Path, default=None, help="CSV opcional con tiempos del TP1")
@@ -462,7 +588,12 @@ def _build_parser() -> argparse.ArgumentParser:
     all_p.add_argument("--eta-mid", type=float, default=3.5)
     all_p.add_argument("--stride", type=int, default=5)
     all_p.add_argument("--fps", type=int, default=20)
-    all_p.add_argument("--format", choices=("gif", "mp4", "both"), default="both")
+    all_p.add_argument(
+        "--format",
+        choices=("gif", "mp4", "both"),
+        default=None,
+        help="alias de --anim",
+    )
     all_p.set_defaults(func=cmd_all)
 
     inter = sub.add_parser("interactive", help="abrir el asistente guiado")
@@ -865,7 +996,6 @@ def _generate_assignment_outputs(
     *,
     tp1: Path | None,
 ) -> int:
-    fig_dir = make_batch("figures", "tp-completo")
     code = 0
     for product in (
         "time-series",
@@ -873,20 +1003,20 @@ def _generate_assignment_outputs(
         "clusters",
         "polarization-vs-cluster",
     ):
-        argv = [product, *_batch_cli_args(analysis_batch), "--fig-dir", str(fig_dir), "--compare"]
+        argv = [product, *_batch_cli_args(analysis_batch), "--compare"]
         print("python simulation/main.py " + " ".join(argv))
         code = max(code, main(argv))
 
-    animation_argv = ["animation", *_batch_cli_args(animation_batch), "--talk", "--format", "both"]
+    animation_argv = ["animation", *_batch_cli_args(animation_batch), "--talk", "--anim", "both"]
     print("python simulation/main.py " + " ".join(animation_argv))
     code = max(code, main(animation_argv))
 
-    cim_argv = ["cim-comparison", *_batch_cli_args(cim_batch), "--fig-dir", str(fig_dir)]
+    cim_argv = ["cim-comparison", *_batch_cli_args(cim_batch)]
     if tp1 is not None:
         cim_argv.extend(["--tp1", str(tp1)])
     print("python simulation/main.py " + " ".join(cim_argv))
     code = max(code, main(cim_argv))
-    print(f"Figuras del TP guardadas en: {fig_dir}")
+    print(f"Figuras del TP guardadas en: {output_root() / 'c_input_vs_observable'} y carpetas hermanas")
     return code
 
 
@@ -990,6 +1120,7 @@ def main(argv: list[str] | None = None) -> int:
         if not argv:
             return interactive()
         ns = parser.parse_args(argv)
+        ns._argv = argv
         if not getattr(ns, "cmd", None):
             return interactive()
         return int(ns.func(ns))

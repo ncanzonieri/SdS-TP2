@@ -11,7 +11,7 @@ from typing import Iterator
 import numpy as np
 import pandas as pd
 
-from src.paths import cache_dir, iter_batch_dirs
+from src.paths import cache_dir, ensure_dir, iter_batch_dirs
 
 RUN_DIR_RE = re.compile(
     r"^(?P<model>vicsek|votante)"
@@ -237,7 +237,7 @@ class IngestResult:
 
 def ingest(out_dir: Path, dest: Path | None = None) -> IngestResult:
     cache = dest or cache_dir()
-    cache.mkdir(parents=True, exist_ok=True)
+    cache = ensure_dir(cache)
     runs, skips = scan_runs(out_dir)
     warnings: list[str] = []
     records: list[dict] = []
@@ -248,7 +248,7 @@ def ingest(out_dir: Path, dest: Path | None = None) -> IngestResult:
             skips.append(Skip(run.path, str(exc)))
             continue
         series = _series_path(cache, run.batch, run.path.name)
-        series.parent.mkdir(parents=True, exist_ok=True)
+        ensure_dir(series.parent)
         obs.to_csv(series, index=False, compression="gzip")
         dynamic = run.path / "dynamic.txt"
         expected_n = int(round(run.meta.rho * run.L * run.L))

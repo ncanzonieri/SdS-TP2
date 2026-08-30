@@ -141,6 +141,8 @@ def ensemble(
         series = load_series(row)
         key = str(row["run_dir"])
         forced = forces.get(key, forces.get("*", (None, None)))
+        if forced == (None, None):
+            forced = _auto_model_onset(row)
         detected = detect_run(series, detector, force_va=forced[0], force_s=forced[1])
         onset_rows.append({**row.to_dict(), **detected})
         if detected["status_va"] in USABLE:
@@ -198,6 +200,21 @@ def ensemble(
         )
     agg = pd.DataFrame(grouped)
     return onset, agg
+
+
+T0_VICSEK = 200
+T0_VOTANTE = 2500
+
+
+def _auto_model_onset(row) -> tuple[int | None, int | None]:
+    """Force the measured onsets when the run is long enough to support them."""
+    model = str(row["model"])
+    t_max = int(row["T"]) if "T" in row and pd.notna(row["T"]) else 0
+    if model == "vicsek" and t_max >= T0_VICSEK:
+        return T0_VICSEK, T0_VICSEK
+    if model == "votante" and t_max >= T0_VOTANTE:
+        return T0_VOTANTE, T0_VOTANTE
+    return None, None
 
 
 def warn_ranges(series: pd.DataFrame) -> list[str]:

@@ -2,10 +2,21 @@
 
 from __future__ import annotations
 
+import shutil
+import subprocess
 from datetime import datetime
 from pathlib import Path
 
 KINDS = ("simulation", "figures", "animations", "explore")
+POINT_FOLDERS = {
+    "a": "a_animaciones",
+    "b": "b_evolucion_temporal",
+    "c": "c_input_vs_observable",
+    "d": "d_clusters",
+    "e": "e_va_vs_S",
+    "f": "f_comparacion_modelos",
+    "g": "g_tiempos_cim",
+}
 
 
 def repo_root(start: Path | None = None) -> Path:
@@ -27,7 +38,89 @@ def stamp(now: datetime | None = None) -> str:
 
 
 def cache_dir(root: Path | None = None) -> Path:
-    return output_root(root) / "cache"
+    return data_dir(root) / "cache"
+
+
+def data_dir(root: Path | None = None) -> Path:
+    return output_root(root) / "data"
+
+
+def point_dir(point: str, *, root: Path | None = None) -> Path:
+    if point not in POINT_FOLDERS:
+        raise ValueError(f"unknown assignment point {point!r}; expected one of {sorted(POINT_FOLDERS)}")
+    return ensure_dir(output_root(root) / POINT_FOLDERS[point])
+
+
+def ensure_assignment_tree(*, root: Path | None = None) -> None:
+    ensure_dir(data_dir(root))
+    for point in POINT_FOLDERS:
+        point_dir(point, root=root)
+
+
+def windows_path(path: Path) -> str | None:
+    """Translate a WSL /mnt/<drive>/... path to C:\\... ; leave Windows paths as-is."""
+    posix = Path(path).as_posix()
+    wslpath = shutil.which("wslpath")
+    if wslpath:
+        completed = subprocess.run(
+            [wslpath, "-w", str(path)],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        mapped = completed.stdout.strip()
+        if completed.returncode == 0 and mapped:
+            return mapped
+    if len(posix) >= 7 and posix.startswith("/mnt/") and posix[6] == "/" and posix[5].isalpha():
+        return f"{posix[5].upper()}:\\{posix[7:].replace('/', '\\')}"
+    if len(posix) >= 2 and posix[1] == ":":
+        return str(path)
+    return None
+
+
+def ensure_dir(path: Path) -> Path:
+    """Create a directory, including parents.
+
+    On WSL DrvFs (/mnt/c/...) `mkdir` can raise FileExistsError while `exists()`
+    is still False: a leftover NTFS/9p entry after `output/` was deleted from
+    Windows. Creating the same path through cmd.exe unblocks it.
+    """
+    path = Path(path)
+    if path.is_dir():
+        return path
+    if path.is_file() or path.is_symlink():
+        path.unlink()
+    try:
+        path.mkdir(parents=True, exist_ok=True)
+    except FileExistsError:
+        pass
+    if path.is_dir():
+        return path
+    if _mkdir_via_windows(path) and path.is_dir():
+        return path
+    raise FileExistsError(
+        f"Cannot create {path}: the filesystem reports it exists but it is not "
+        "a usable directory. On WSL this happens after deleting output/ from "
+        "Windows. Create that folder in Explorer and retry, or run: "
+        f'mkdir "{windows_path(path) or path}" from cmd.exe.'
+    )
+
+
+def _cmd_exe() -> str | None:
+    found = shutil.which("cmd.exe")
+    if found:
+        return found
+    bundled = Path("/mnt/c/Windows/System32/cmd.exe")
+    return str(bundled) if bundled.is_file() else None
+
+
+def _mkdir_via_windows(path: Path) -> bool:
+    cmd = _cmd_exe()
+    win = windows_path(path)
+    if cmd is None or win is None:
+        return False
+    subprocess.run([cmd, "/c", "mkdir", win], capture_output=True, text=True, check=False)
+    return path.is_dir()
 
 
 def make_batch(
@@ -43,8 +136,7 @@ def make_batch(
     if suffix:
         name = f"{name}_{suffix}"
     path = output_root(root) / kind / name
-    path.mkdir(parents=True, exist_ok=True)
-    return path
+    return ensure_dir(path)
 
 
 def iter_batch_dirs(scan_root: Path) -> list[Path]:
