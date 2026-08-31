@@ -17,7 +17,9 @@ from src.cli import (
     _generate_assignment_outputs,
     _interactive_outputs,
     _production_args,
+    _production_run_counts,
     _talk_args,
+    _talk_run_count,
     interactive,
     main,
 )
@@ -336,18 +338,31 @@ def test_cmd_all_shares_prepare_path(tmp_path):
     assert (figs / "g_cim_times.png").is_file()
 
 
-def test_assignment_data_profiles_match_frozen_plan():
-    production = _production_args()
-    assert production[production.index("--rho") + 1] == "2,4,8"
-    assert production[production.index("--eta") + 1] == "0:6:0.5"
-    assert production[production.index("--T") + 1] == "500"
-    assert production[production.index("--repeats") + 1] == "5"
-    assert "--dynamic" not in production
+def test_assignment_data_profiles_cover_both_density_families():
+    """El barrido va en dos tandas porque `--repeats` es global en Java.
 
-    talk = _talk_args()
-    assert talk[talk.index("--rho") + 1] == "2,4,8"
-    assert talk[talk.index("--eta") + 1] == "0.5,3.5,6"
-    assert "--dynamic" in talk
+    Las densidades bajas del estudio de clusters (N entre 11 y 32) necesitan mas
+    realizaciones que las tres del enunciado.
+    """
+    (_, general), (_, low) = _production_args()
+    assert general[general.index("--rho") + 1] == "2,4,8"
+    assert general[general.index("--repeats") + 1] == "5"
+    assert low[low.index("--rho") + 1] == "0.1061,0.1592,0.3183"
+    assert low[low.index("--repeats") + 1] == "20"
+    for args in (general, low):
+        assert args[args.index("--eta") + 1] == "0:6:0.5"
+        assert args[args.index("--T") + 1] == "500"
+        assert "--dynamic" not in args
+    assert _production_run_counts() == (390, 1560)
+
+    talk_general, talk_low = _talk_args()
+    assert talk_general[talk_general.index("--rho") + 1] == "2,4,8"
+    assert talk_general[talk_general.index("--eta") + 1] == "0.5,3.5,6"
+    assert talk_low[talk_low.index("--rho") + 1] == "0.1061,0.1592,0.3183"
+    assert talk_low[talk_low.index("--eta") + 1] == "3.5"
+    for args in (talk_general, talk_low):
+        assert "--dynamic" in args
+    assert _talk_run_count() == 24
 
 
 def test_interactive_menu_has_three_user_facing_workflows():

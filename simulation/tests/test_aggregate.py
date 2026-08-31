@@ -157,25 +157,44 @@ def test_atol_changes_onset():
         assert tight.status == "never"
 
 
-def test_ensemble_auto_forces_model_t0_when_T_is_long_enough():
+def test_ensemble_detects_t0_per_run_and_never_forces_by_model():
+    """t0 lo decide el detector corrida por corrida.
+
+    Antes habia una constante por modelo (200 Vicsek / 2500 votante) que se
+    aplicaba segun el largo declarado de la corrida, asi que dos modelos en la
+    misma figura terminaban con criterios distintos.
+    """
     index = pd.DataFrame(
         [
-            {**_index_row("vicsek-long"), "model": "vicsek", "T": 500},
-            {**_index_row("votante-short"), "model": "votante", "T": 500, "run_dir": "vshort"},
-            {**_index_row("votante-long"), "model": "votante", "T": 5000, "run_dir": "vlong"},
+            {**_index_row("vicsek-500"), "model": "vicsek", "T": 500},
+            {**_index_row("votante-500"), "model": "votante", "T": 500},
+            {**_index_row("votante-5000"), "model": "votante", "T": 5000},
         ]
     )
+    serie = _series(t_end=5000)
 
     def load(_row):
-        return _series(t_end=5000)
+        return serie
 
-    onset, _agg = ensemble(index, load, Detector(window=20, atol=0.02, rtol=0.05, t_min=10, sustain=3))
-    by_dir = onset.set_index("run_dir")
-    assert by_dir.loc["vicsek-long", "t_onset_va"] == 200
-    assert by_dir.loc["vicsek-long", "status_va"] == "forced"
-    assert by_dir.loc["vshort", "status_va"] != "forced"
-    assert by_dir.loc["vlong", "t_onset_va"] == 2500
-    assert by_dir.loc["vlong", "status_va"] == "forced"
+    det = Detector(window=20, atol=0.02, rtol=0.05, t_min=10, sustain=3)
+    onset, _agg = ensemble(index, load, det)
+
+    assert set(onset["status_va"]) == {"ok"}
+    # Misma serie: mismo t0, sin importar el modelo ni el T declarado.
+    assert onset["t_onset_va"].nunique() == 1
+    assert onset.iloc[0]["t_onset_va"] == detect_run(serie, det)["t_onset_va"]
+
+
+def test_explicit_t_onset_still_overrides_the_detector():
+    index = pd.DataFrame([_index_row("r1")])
+
+    def load(_row):
+        return _series()
+
+    det = Detector(window=20, atol=0.02, rtol=0.05, t_min=10, sustain=3)
+    onset, _agg = ensemble(index, load, det, t_onset=123)
+    assert onset.iloc[0]["t_onset_va"] == 123
+    assert onset.iloc[0]["status_va"] == "forced"
 
 
 def test_ensemble_n1_no_std():

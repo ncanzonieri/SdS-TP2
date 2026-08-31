@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
+from itertools import islice
 from pathlib import Path
 
 import matplotlib
@@ -23,16 +24,27 @@ from src.paths import ensure_dir
 
 TALK_MODELS = ("vicsek", "votante")
 TALK_RHOS = (2.0, 4.0, 8.0)
+# Densidades bajas del estudio de clusters: 1/(3pi), 1/(2pi), 1/pi. Java nombra
+# sus carpetas con rho = N/L^2 (0.11 / 0.16 / 0.32); `rho_close` puentea.
+LOW_RHOS = (0.1061, 0.1592, 0.3183)
 ETA_MID = 3.5
 
 
 def talk_catalog(eta_mid: float = ETA_MID) -> tuple[tuple[str, float, float], ...]:
-    return tuple(
+    """Animacion caracteristica al inicio de cada estudio (GuiaPresentaciones).
+
+    Las tres densidades del enunciado con ruido bajo / medio / alto, mas las tres
+    del estudio de clusters a ruido medio: ese estudio corre sobre densidades
+    propias, asi que necesita su propia animacion.
+    """
+    general = [
         (model, rho, eta)
         for model in TALK_MODELS
         for eta in (0.5, eta_mid, 6.0)
         for rho in TALK_RHOS
-    )
+    ]
+    cluster = [(model, rho, eta_mid) for model in TALK_MODELS for rho in LOW_RHOS]
+    return tuple(general + cluster)
 
 
 TALK_ANIMATIONS = talk_catalog()
@@ -85,9 +97,10 @@ def run(
             "MP4 export requires imageio-ffmpeg; install simulation/requirements.txt "
             "or use --format gif"
         )
-    sampled = list(frames)
-    if opts.stride > 1:
-        sampled = sampled[:: opts.stride]
+    # El stride se aplica MIENTRAS se itera: `frames` es el generador que lee
+    # dynamic.txt, y materializarlo entero para despues tirar 4 de cada 5 frames
+    # cuesta decenas de MB por corrida con rho=8 y T=2000.
+    sampled = list(islice(frames, 0, None, max(1, opts.stride)))
     if not sampled:
         raise ValueError("no frames to animate")
 

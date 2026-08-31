@@ -22,7 +22,12 @@ from src.limits import FamilyLimits, cover, family_limits, n_min_from, stationar
 from src.paths import ensure_dir
 
 GENERAL_RHOS = (2.0, 4.0, 8.0)
-CLUSTER_RHOS = GENERAL_RHOS
+# Densidades bajas del estudio de clusters: 1/(3pi), 1/(2pi), 1/pi. Con rc=1 las
+# tres del enunciado dan S~1 constante (el grafo de vecindad esta muy por encima
+# de percolacion), asi que S solo informa aca abajo. Java nombra las carpetas con
+# rho = N/L^2 (0.11 / 0.16 / 0.32); `rho_close` puentea ambas escrituras.
+LOW_RHOS = (0.1061, 0.1592, 0.3183)
+CLUSTER_RHOS = LOW_RHOS + GENERAL_RHOS
 CHARACTERISTIC_ETAS = (0.5, 3.5, 6.0)
 FIG_CHOICES = ("png", "pdf", "both", "none")
 _FIG_FORMATS: frozenset[str] = frozenset({"png"})

@@ -24,11 +24,16 @@ from src.plot import (
 )
 
 
-def test_cluster_figures_default_to_assignment_densities():
+def test_cluster_figures_include_the_low_densities():
+    """(d) y (e) van con las 6: las 3 del enunciado y las 3 del pedido oral.
+
+    Los nombres de carpeta que escribe Java (rho = N/L^2 -> 0.32 / 0.16 / 0.11)
+    tienen que resolver a las densidades exactas via `rho_close`.
+    """
+    assert CLUSTER_RHOS == (0.1061, 0.1592, 0.3183, 2.0, 4.0, 8.0)
     frame = pd.DataFrame({"rho": [0.32, 0.16, 0.11, 0.3183, 2.0, 99.0]})
     kept = filter_rhos(frame, list(CLUSTER_RHOS))
-    assert CLUSTER_RHOS == (2.0, 4.0, 8.0)
-    assert kept["rho"].tolist() == [2.0]
+    assert kept["rho"].tolist() == [0.32, 0.16, 0.11, 0.3183, 2.0]
 
 
 def test_fig_b_selects_one_low_mid_high_run_per_model():

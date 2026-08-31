@@ -6,6 +6,7 @@ import pandas as pd
 from src.animate import (
     AnimateOpts,
     DISPLAY_ARROW_FRAC,
+    LOW_RHOS,
     TALK_ANIMATIONS,
     TALK_RHOS,
     display_uv,
@@ -60,18 +61,26 @@ def test_near_cut_close_in_hue():
     assert delta < 0.05
 
 
-def test_talk_catalog_size():
+def test_talk_catalog_covers_both_studies():
+    """Cada estudio necesita su animacion caracteristica.
+
+    El de clusters corre sobre densidades propias, asi que no alcanza con las
+    tres del enunciado.
+    """
     assert TALK_RHOS == (2.0, 4.0, 8.0)
-    assert len(TALK_ANIMATIONS) == 18
+    assert LOW_RHOS == (0.1061, 0.1592, 0.3183)
+    assert len(TALK_ANIMATIONS) == 24
     etas = {item[2] for item in TALK_ANIMATIONS}
     assert 0.0 not in etas
     assert {0.5, 3.5, 6.0} <= etas
-    assert set(TALK_ANIMATIONS) == {
+    general = {
         (model, rho, eta)
         for model in ("vicsek", "votante")
         for rho in TALK_RHOS
         for eta in (0.5, 3.5, 6.0)
     }
+    cluster = {(model, rho, 3.5) for model in ("vicsek", "votante") for rho in LOW_RHOS}
+    assert set(TALK_ANIMATIONS) == general | cluster
 
 
 def test_match_talk_resolves_catalog():
@@ -87,4 +96,4 @@ def test_match_talk_resolves_catalog():
         )
     found, missing = match_talk(pd.DataFrame(rows))
     assert missing == []
-    assert len(found) == 18
+    assert len(found) == len(TALK_ANIMATIONS)

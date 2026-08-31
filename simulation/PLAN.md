@@ -23,11 +23,17 @@ simulation/main.py     entry
 simulation/src/        cli, paths, java, io, aggregate, plot, animate
 output/                gitignored product tree
   simulation/<YYYY-MM-DD_HHMMSS>/   Java runs + cim_times_*.txt
-  figures/<stamp>_<kind>/
-  animations/<stamp>_<run>/flock.{gif,mp4}
-  explore/<stamp>/
-  cache/index.csv.gz
-  cache/series/<batch>/<run_dir>.csv.gz   # t, va, S only
+  a_animaciones/<run_dir>/flock.{gif,mp4}
+  b_evolucion_temporal/            one folder per assignment point (paths.POINT_FOLDERS)
+  c_input_vs_observable/
+  d_clusters/
+  e_va_vs_S/
+  f_comparacion_modelos/           the --compare overlays
+  g_tiempos_cim/
+  explore/<stamp>/                 make_batch kind, still timestamped
+  data/s_axis_limits.txt
+  data/cache/index.csv.gz
+  data/cache/series/<batch>/<run_dir>.csv.gz   # t, va, S only
 ```
 
 `src/paths.py` is the only module that knows that tree.
@@ -35,6 +41,11 @@ output/                gitignored product tree
 Java `--eta` / `--rho` / `--N` lists are `from:to:step` (`0:6:0.5`), not MATLAB `start:step:stop`. `src/java.py` expands those ranges to a comma list before Maven because `exec.args` on Windows splits on `:`.
 
 ## Production sweep (frozen 2026-08-27)
+
+> **Registro historico.** Esta seccion documenta la calibracion del perfil con
+> `T=10000`. El perfil que corre hoy vive en `src/cli.py` (`_production_args`) y
+> usa `T=500` en dos tandas de densidades; ver `README.md`. La razon de fondo de
+> la calibracion sigue valiendo y por eso se conserva.
 
 Calibration (measured, not invented):
 
@@ -49,7 +60,7 @@ Frozen knobs:
 - **η = `0:6:0.5`** (13 points). Java `from:to:step`.
 - **`--repeats 5`**, **`--seed 1`**. No `--dynamic` on the sweep.
 - Densities `{1/π, 1/(2π), 1/(3π), 2, 4, 8}` ≈ `0.3183,0.1592,0.1061,2,4,8`.
-- Detector: `--window 200 --t-min 200 --sustain 3 --atol 0.02 --rtol 0.05`.
+- Detector (de aquella calibracion): `--window 200 --t-min 200 --sustain 3 --atol 0.02 --rtol 0.05`. Los defaults actuales son `--window 100 --t-min 100`, y `sustain` cambio de significado: ahora es la cantidad de tramos de confirmacion, no de ventanas corridas.
 - **η_mid = 3.5** (talk catalog + `--eta-mid` default). 2.5 is still ordered at ρ=4 (`va≈0.66`).
 - Talk videos: `T_anim = 2000`, `--stride 5`, `--dynamic`, seed 1.
 
@@ -69,12 +80,12 @@ Do **not** launch this until the group is ready to leave the machine overnight. 
 
 Status: CLI implemented. Sweep numbers frozen 2026-08-27. Production matrix not launched.
 
-- **(a)** GIF and MP4 animations, arrows at positions, colored by velocity angle, both models. `python simulation/main.py animate --talk` → `output/animations/`. Catalog: general ρ={2,4,8} × η∈{0.5, η_mid, 6} × both models, plus cluster ρ={1/π, 1/(2π), 1/(3π)} × η_mid × both models. Quiver length is display-only (`L*0.04`, direction kept); Java `v` is unchanged.
-- **(b)** characteristic `va(t)` with onset lines. `fig-b --compare` → `output/figures/<stamp>_fig-b/`. Calibration overlay: `fig-b --batch 2026-08-27_233757 --series va`.
+- **(a)** GIF and MP4 animations, arrows at positions, colored by velocity angle, both models. `python simulation/main.py animate --talk` → `output/a_animaciones/`. Catalog (24 runs, `animate.talk_catalog`): general ρ={2,4,8} × η∈{0.5, η_mid, 6} × both models, plus cluster ρ={1/π, 1/(2π), 1/(3π)} × η_mid × both models. Quiver length is display-only (`L*0.04`, direction kept); Java `v` is unchanged.
+- **(b)** characteristic `va(t)` with onset lines. `fig-b --compare` → `output/b_evolucion_temporal/` (los overlays de `--compare` van a `output/f_comparacion_modelos/`). Calibration overlay: `fig-b --batch 2026-08-27_233757 --series va`.
 - **(c)** `va` vs η with error bars, densities 2,4,8. `fig-c --compare`.
 - **(d) S(t)** one curve per density (six ρ). `fig-d` time panel → `fig-d-S-t`. Vertical `t_onset_S` lines when status is in `aggregate.USABLE` (same rule as fig-b for `va`).
 - **(d) S vs η** stationary mean ± SD. `fig-d` eta panel → `fig-d-S-eta`.
-- **(d)/(e) cluster ρ** Java folders are `rho0.32` / `0.16` / `0.11` (`N/L²`). `rho_close` aliases those to `1/π`, `1/(2π)`, `1/(3π)` and still matches fixture `rho0.3183`. fig-d/e defaults use the production folder names.
+- **(d)/(e) cluster ρ** `plot.CLUSTER_RHOS` = the three low densities plus the three from the statement (six curves). Java folders are `rho0.32` / `0.16` / `0.11` (`N/L²`); `rho_close` aliases those to `1/π`, `1/(2π)`, `1/(3π)` and still matches fixture `rho0.3183`. With `rc=1` the ρ={2,4,8} curves sit at `S≈1` for every η — that flatness is a result, not a bug, but the low densities are what make (d) and (e) informative.
 - **(e)** `va` vs `S`, densities distinguished, six ρ default. `fig-e --compare`.
 - **(f)** voter repeats (a)–(e); overlay both models on (b)–(e) via `--compare`; talk catalog includes votante.
 - **(g)** CIM times vs TP1. `run -- --cim-benchmark` then `fig-g --tp1 PATH`. Gap: no TP1 file in this repo.

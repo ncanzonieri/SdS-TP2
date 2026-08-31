@@ -19,7 +19,7 @@ from src.io import (
     load_series,
     read_cim_series,
 )
-from src.java import run_engine
+from src.java import expand_numeric_list, run_engine
 from src.limits import compute_s_limits
 from src.paths import cache_dir, data_dir, ensure_assignment_tree, ensure_dir, make_batch, output_root, point_dir, repo_root
 from src.plot import (
@@ -38,9 +38,16 @@ from src.plot import (
 )
 
 GENERAL_RHOS = "2,4,8"
-PRODUCTION_RHOS = GENERAL_RHOS
+# Densidades bajas del estudio de clusters (1/(3pi), 1/(2pi), 1/pi -> N = 11, 16, 32).
+# Van en su propia tanda porque con tan pocas particulas las fluctuaciones son
+# enormes y necesitan mas realizaciones que las tres del enunciado.
+LOW_RHOS = "0.1061,0.1592,0.3183"
 PRODUCTION_ETAS = "0:6:0.5"
+PRODUCTION_T = "500"
+GENERAL_REPEATS = "5"
+LOW_REPEATS = "20"
 TALK_ETAS = "0.5,3.5,6"
+ETA_MID = "3.5"
 
 
 def _detector(ns: argparse.Namespace) -> Detector:
@@ -742,43 +749,80 @@ def _interactive_custom_simulate() -> int:
     return 0
 
 
-def _production_args() -> list[str]:
+def _n_values(raw: str) -> int:
+    """Cuantos valores genera una lista o un rango `desde:hasta:paso` de Java."""
+    return len(expand_numeric_list(raw).split(","))
+
+
+def _n_runs(rhos: str, etas: str, repeats: str, *, models: int = 2) -> int:
+    return models * _n_values(rhos) * _n_values(etas) * int(repeats)
+
+
+def _sweep_args(rhos: str, repeats: str) -> list[str]:
     return [
         "--model",
         "both",
         "--rho",
-        PRODUCTION_RHOS,
+        rhos,
         "--eta",
         PRODUCTION_ETAS,
         "--T",
-        "500",
+        PRODUCTION_T,
         "--repeats",
-        "5",
+        repeats,
         "--seed",
         "1",
     ]
 
 
-def _talk_args() -> list[str]:
+def _production_args() -> list[tuple[str, list[str]]]:
+    """Las dos tandas del barrido, etiquetadas.
+
+    Van separadas porque `--repeats` es global en Java y las densidades bajas
+    (N entre 11 y 32) necesitan mas realizaciones para que las barras de error de
+    (d) y (e) sirvan. Comparten lote de salida, asi que el ingest las ve juntas.
+    """
     return [
-        "--model",
-        "both",
-        "--rho",
-        GENERAL_RHOS,
-        "--eta",
-        TALK_ETAS,
-        "--T",
-        "2000",
-        "--seed",
-        "1",
-        "--dynamic",
+        (f"densidades del enunciado rho={{{GENERAL_RHOS}}}", _sweep_args(GENERAL_RHOS, GENERAL_REPEATS)),
+        (f"densidades de clusters rho={{{LOW_RHOS}}}", _sweep_args(LOW_RHOS, LOW_REPEATS)),
     ]
+
+
+def _production_run_counts() -> tuple[int, int]:
+    return (
+        _n_runs(GENERAL_RHOS, PRODUCTION_ETAS, GENERAL_REPEATS),
+        _n_runs(LOW_RHOS, PRODUCTION_ETAS, LOW_REPEATS),
+    )
+
+
+def _production_summary() -> str:
+    general, low = _production_run_counts()
+    return (
+        f"{general + low} corridas de T={PRODUCTION_T} "
+        f"({general} en rho={{{GENERAL_RHOS}}} x{GENERAL_REPEATS}, "
+        f"{low} en rho={{{LOW_RHOS}}} x{LOW_REPEATS})"
+    )
+
+
+def _talk_args() -> list[list[str]]:
+    """Catalogo de animaciones: las tres densidades del enunciado con ruido
+    bajo/medio/alto, mas las de clusters a ruido medio (cada estudio necesita su
+    propia animacion caracteristica)."""
+    base = ["--model", "both", "--T", "2000", "--seed", "1", "--dynamic"]
+    return [
+        ["--rho", GENERAL_RHOS, "--eta", TALK_ETAS, *base],
+        ["--rho", LOW_RHOS, "--eta", ETA_MID, *base],
+    ]
+
+
+def _talk_run_count() -> int:
+    return _n_runs(GENERAL_RHOS, TALK_ETAS, "1") + _n_runs(LOW_RHOS, ETA_MID, "1")
 
 
 def _confirm_production() -> bool:
     return bool(
         questionary.confirm(
-            "El barrido completo ejecuta 390 corridas de T=500. "
+            f"El barrido completo ejecuta {_production_summary()}. "
             "¿La máquina está lista para continuar?",
             default=False,
         ).ask()
@@ -788,16 +832,20 @@ def _confirm_production() -> bool:
 def _generate_production_data(*, confirm: bool = True) -> Path | None:
     if confirm and not _confirm_production():
         return None
-    print("Generando barrido productivo: ambos modelos, 3 densidades, 13 ruidos y 5 repeticiones.")
-    out = run_engine(_production_args())
+    out = make_batch("simulation")
+    for label, args in _production_args():
+        print(f"Generando barrido productivo — {label}...")
+        run_engine(args, out_dir=out)
     print(f"Barrido guardado en: {out}")
     return out
 
 
 def _generate_talk_data() -> Path:
     out = make_batch("simulation", "animaciones")
-    print("Generando 18 corridas animables: ambos modelos, rho={2,4,8} y ruido bajo/medio/alto...")
-    run_engine(_talk_args(), out_dir=out)
+    print(f"Generando {_talk_run_count()} corridas animables: ambos modelos, "
+          f"rho={{{GENERAL_RHOS}}} con ruido bajo/medio/alto y rho={{{LOW_RHOS}}} a ruido medio...")
+    for args in _talk_args():
+        run_engine(args, out_dir=out)
     print(f"Datos animables guardados en: {out}")
     return out
 
@@ -814,11 +862,11 @@ def _interactive_generate_data() -> int:
         "¿Qué datos querés generar?",
         choices=[
             questionary.Choice(
-                "Barrido completo del TP — 390 corridas, sin dynamic.txt",
+                f"Barrido completo del TP — {_production_summary()}, sin dynamic.txt",
                 value="production",
             ),
             questionary.Choice(
-                "Corridas para animaciones — 18 corridas con dynamic.txt",
+                f"Corridas para animaciones — {_talk_run_count()} corridas con dynamic.txt",
                 value="talk",
             ),
             questionary.Choice(
