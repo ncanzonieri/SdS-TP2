@@ -69,5 +69,10 @@ with an absolute `--out` under `output/simulation/<timestamp>/`.
 
 The current CLI production sweep follows the three assignment densities
 ρ=`2,4,8`, with `T=500`, η=`0:6:0.5`, five repeats and η_mid=`3.5`.
-The stationary-state detector starts at `t=100` and compares windows of 100 samples.
+The stationary-state detector starts at `t=100`. For a candidate onset it splits
+the tail `[t0, T]` into `sustain + 1` equal segments (at least `window` steps each)
+and accepts `t0` when every segment mean sits within `atol + rtol*|mean|` of the
+tail mean -- the same mean that is then reported. Segments are disjoint and grow
+with the run, so a series that still drifts is rejected while the large but
+trendless fluctuations near the transition are not.
 `PLAN.md` retains the original calibration rationale for the longer run.

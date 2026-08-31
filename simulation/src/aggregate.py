@@ -28,6 +28,16 @@ class Detector:
     t_min: int = 100
     sustain: int = 3
 
+    @property
+    def segments(self) -> int:
+        """En cuantos tramos iguales se parte la cola para validarla."""
+        return self.sustain + 1
+
+    @property
+    def min_tail(self) -> int:
+        """Largo minimo de cola que permite decidir (`segments` tramos de `window`)."""
+        return self.segments * self.window
+
 
 def detect_onset(t: np.ndarray, y: np.ndarray, detector: Detector, *, eps: float = 1e-12) -> Onset:
     t = np.asarray(t, dtype=int)
@@ -38,33 +48,31 @@ def detect_onset(t: np.ndarray, y: np.ndarray, detector: Detector, *, eps: float
         raise ValueError("window and sustain must be > 0")
 
     order = np.argsort(t)
-    t = t[order]
-    y = y[order]
-    mask = t >= detector.t_min
-    t_s = t[mask]
-    y_s = y[mask]
-    if t_s.size < 2 * detector.window:
+    t_s = t[order]
+    y_s = y[order]
+    mask = t_s >= detector.t_min
+    t_s = t_s[mask]
+    y_s = y_s[mask]
+
+    size = y_s.size
+    if size < detector.min_tail:
         return Onset(None, STATUS_SHORT)
 
-    last = t_s.size - 2 * detector.window
-    if last < 0:
-        return Onset(None, STATUS_SHORT)
+    n_seg = detector.segments
+    # cumsum[k] = suma de y_s[:k]; da la media de cualquier tramo en O(1).
+    # Como lista de floats de Python: el escaneo hace aritmetica escalar, no vectorial.
+    cumsum = np.concatenate(([0.0], np.cumsum(y_s))).tolist()
 
-    streak = 0
-    streak_start: int | None = None
-    for i in range(0, last + 1):
-        m1 = float(np.mean(y_s[i : i + detector.window]))
-        m2 = float(np.mean(y_s[i + detector.window : i + 2 * detector.window]))
-        tol = detector.atol + detector.rtol * max(abs(m2), eps)
-        if abs(m1 - m2) <= tol:
-            if streak == 0:
-                streak_start = int(t_s[i])
-            streak += 1
-            if streak >= detector.sustain:
-                return Onset(streak_start, STATUS_OK)
-        else:
-            streak = 0
-            streak_start = None
+    for i in range(0, size - detector.min_tail + 1):
+        seg = (size - i) // n_seg
+        end = i + n_seg * seg
+        ref = (cumsum[end] - cumsum[i]) / (end - i)
+        tol = detector.atol + detector.rtol * max(abs(ref), eps)
+        if all(
+            abs((cumsum[a + seg] - cumsum[a]) / seg - ref) <= tol
+            for a in range(i, end, seg)
+        ):
+            return Onset(int(t_s[i]), STATUS_OK)
     return Onset(None, STATUS_NEVER)
 
 
