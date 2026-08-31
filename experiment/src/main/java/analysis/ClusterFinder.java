@@ -23,6 +23,8 @@ public final class ClusterFinder {
     public static void recursiveAdd(Particle particle, Map<Particle, List<Particle>> neighbors, Set<Particle> cluster, Set<Particle> visited) {
         cluster.add(particle);
         for (Particle neighbor : neighbors.getOrDefault(particle,Collections.emptyList())) {
+            if (visited.contains(neighbor))
+                continue;
             visited.add(neighbor);
             recursiveAdd(neighbor,neighbors,cluster,visited);
         }
