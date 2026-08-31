@@ -66,16 +66,60 @@ def test_default_detector_accepts_t500_series():
     assert onset.t_onset == 100
 
 
-def test_sustain_rejects_single_pass():
-    t = np.arange(0, 200)
-    y = 0.001 * t
-    y[80:120] = y[79]
-    one = detect_onset(t, y, _d(10, 0.01, 0.0, 5, 1))
-    three = detect_onset(t, y, _d(10, 0.01, 0.0, 5, 3))
-    assert one.status == "ok"
-    assert three.status in {"ok", "never"}
-    if three.status == "ok" and one.t_onset is not None and three.t_onset is not None:
-        assert three.t_onset >= one.t_onset
+def test_sustain_adds_real_evidence():
+    """Cola en V: las dos mitades coinciden, los cuatro cuartos no.
+
+    Con ventanas corridas y solapadas `sustain` no distinguia estos dos casos.
+    """
+    t = np.arange(0, 400)
+    y = np.concatenate(
+        [np.full(100, 0.5), np.full(100, 0.3), np.full(100, 0.3), np.full(100, 0.5)]
+    )
+    assert detect_onset(t, y, _d(100, 0.02, 0.05, 0, 1)).status == "ok"
+    assert detect_onset(t, y, _d(100, 0.02, 0.05, 0, 3)).status == "never"
+
+
+def test_wandering_series_is_not_stationary():
+    """Regresion: la forma de votante eta=0 truncado a T=500.
+
+    va deambula (0.38 -> 0.53 -> 0.39) sin haber llegado al estacionario; el
+    valor real de la corrida larga es 1.0. El criterio de ventanas corridas la
+    aceptaba con t0=207 y estimaba 0.52.
+    """
+    t = np.arange(0, 501)
+    y = np.concatenate(
+        [
+            np.full(100, 0.20),
+            np.full(100, 0.38),
+            np.full(100, 0.53),
+            np.full(100, 0.45),
+            np.full(101, 0.39),
+        ]
+    )
+    assert detect_onset(t, y, Detector()).status == "never"
+
+
+def test_large_stationary_fluctuations_are_accepted():
+    """Cerca de la transicion va fluctua fuerte pero no deriva: hay que aceptarla.
+
+    Es el pico de susceptibilidad; un criterio que exija tramos de ancho fijo
+    chico rechaza justo la region que mas interesa.
+    """
+    t = np.arange(0, 5001)
+    y = 0.43 + 0.15 * np.sin(2 * np.pi * t / 137.0)
+    onset = detect_onset(t, y, Detector())
+    assert onset.status == "ok"
+    assert onset.t_onset == 100
+
+
+def test_tail_shorter_than_segments_is_too_short():
+    det = Detector()
+    assert det.min_tail == 400
+    # t_min=100 recorta la cola: hacen falta 500 muestras para tener 400 utiles.
+    t = np.arange(0, 500)
+    y = np.full(t.size, 0.8)
+    assert detect_onset(t, y, det).status == "ok"
+    assert detect_onset(t[:-1], y[:-1], det).status == "too_short"
 
 
 def test_dual_onset_independent():
