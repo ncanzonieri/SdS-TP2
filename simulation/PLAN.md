@@ -44,7 +44,7 @@ Java `--eta` / `--rho` / `--N` lists are `from:to:step` (`0:6:0.5`), not MATLAB 
 
 > **Registro historico.** Esta seccion documenta la calibracion del perfil con
 > `T=10000`. El perfil que corre hoy vive en `src/cli.py` (`_production_args`) y
-> usa `T=500` en dos tandas de densidades; ver `README.md`. La razon de fondo de
+> usa `T=2000` en dos tandas de densidades; ver `README.md`. La razon de fondo de
 > la calibracion sigue valiendo y por eso se conserva.
 
 Calibration (measured, not invented):
@@ -60,7 +60,7 @@ Frozen knobs:
 - **η = `0:6:0.5`** (13 points). Java `from:to:step`.
 - **`--repeats 5`**, **`--seed 1`**. No `--dynamic` on the sweep.
 - Densities `{1/π, 1/(2π), 1/(3π), 2, 4, 8}` ≈ `0.3183,0.1592,0.1061,2,4,8`.
-- Detector (de aquella calibracion): `--window 200 --t-min 200 --sustain 3 --atol 0.02 --rtol 0.05`. Los defaults actuales son `--window 100 --t-min 100`, y `sustain` cambio de significado: ahora es la cantidad de tramos de confirmacion, no de ventanas corridas.
+- Detector (de aquella calibracion): `--window 200 --t-min 200 --sustain 3 --atol 0.02 --rtol 0.05`. Los defaults actuales son `--window 100 --t-min 100`. En T=500 la cola de confirmacion se achica para que t0 no quede clavado en t_min.
 - **η_mid = 3.5** (talk catalog + `--eta-mid` default). 2.5 is still ordered at ρ=4 (`va≈0.66`).
 - Talk videos: `T_anim = 2000`, `--stride 5`, `--dynamic`, seed 1.
 

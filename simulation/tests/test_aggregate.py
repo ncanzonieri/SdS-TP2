@@ -112,14 +112,34 @@ def test_large_stationary_fluctuations_are_accepted():
     assert onset.t_onset == 100
 
 
-def test_tail_shorter_than_segments_is_too_short():
+def test_tail_shorter_than_required_is_too_short():
     det = Detector()
     assert det.min_tail == 400
-    # t_min=100 recorta la cola: hacen falta 500 muestras para tener 400 utiles.
-    t = np.arange(0, 500)
+    # Corrida larga: se conserva el window configurado.
+    assert det.required_tail(9900) == 400
+    # T=500 (n=401 tras t_min=100): achica la cola para poder barrer t0.
+    assert 240 <= det.required_tail(401) < 400
+    t = np.arange(0, 150)
     y = np.full(t.size, 0.8)
-    assert detect_onset(t, y, det).status == "ok"
-    assert detect_onset(t[:-1], y[:-1], det).status == "too_short"
+    assert detect_onset(t, y, det).status == "too_short"
+
+
+def test_t500_onset_follows_the_plateau_not_t_min():
+    """Con T=500 el min_tail=400 dejaba un solo candidato: t=100.
+
+    La linea de (b) quedaba bien si el plateau empezaba antes, y mal si la
+    serie todavia subia. t0 tiene que correrse con esa curva.
+    """
+    t = np.arange(0, 501)
+    early = np.where(t < 70, 0.15, 0.92)
+    late = np.where(t < 220, 0.15, 0.92)
+    e = detect_onset(t, early, Detector())
+    l = detect_onset(t, late, Detector())
+    assert e.status == "ok"
+    assert l.status == "ok"
+    assert e.t_onset == 100
+    assert 200 <= l.t_onset <= 240
+    assert l.t_onset > e.t_onset
 
 
 def test_dual_onset_independent():

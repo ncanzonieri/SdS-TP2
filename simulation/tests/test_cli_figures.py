@@ -7,6 +7,8 @@ import matplotlib
 
 matplotlib.use("Agg")
 
+from argparse import Namespace
+
 from src.cli import (
     _ask_tp1_csv,
     _ask_typed_batch_path,
@@ -14,6 +16,7 @@ from src.cli import (
     _build_parser,
     _choose_batch,
     _expand_user_path,
+    _scan_root,
     _generate_assignment_outputs,
     _interactive_outputs,
     _production_args,
@@ -351,7 +354,7 @@ def test_assignment_data_profiles_cover_both_density_families():
     assert low[low.index("--repeats") + 1] == "20"
     for args in (general, low):
         assert args[args.index("--eta") + 1] == "0:6:0.5"
-        assert args[args.index("--T") + 1] == "500"
+        assert args[args.index("--T") + 1] == "2000"
         assert "--dynamic" not in args
     assert _production_run_counts() == (390, 1560)
 
@@ -450,6 +453,16 @@ def test_interactive_outputs_overlay_no_omits_compare():
 def test_batch_cli_args_dir_uses_out_else_batch(tmp_path):
     assert _batch_cli_args(tmp_path) == ["--out", str(tmp_path.resolve())]
     assert _batch_cli_args("analysis-batch") == ["--batch", "analysis-batch"]
+
+
+def test_scan_root_absolute_batch_is_out(tmp_path):
+    assert _scan_root(Namespace(out=None, batch=str(tmp_path))) == tmp_path.resolve()
+
+
+def test_scan_root_batch_name_stays_under_output_simulation():
+    path = _scan_root(Namespace(out=None, batch="2026-09-02_201710"))
+    assert path.name == "2026-09-02_201710"
+    assert path.parent.name == "simulation"
 
 
 def test_choose_batch_last_choice_writes_a_path(tmp_path):

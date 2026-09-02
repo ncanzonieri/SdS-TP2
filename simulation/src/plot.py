@@ -12,8 +12,6 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import plotly.express as px
-from matplotlib.cm import ScalarMappable
-from matplotlib.colors import Normalize
 from matplotlib.lines import Line2D
 
 from src.aggregate import USABLE
@@ -62,8 +60,6 @@ RHO_MARKER = {
     8.0: "P",
 }
 VA_YLIM = (0.0, 1.02)
-ETA_NORM = Normalize(vmin=0.0, vmax=6.0)
-ETA_CMAP = plt.colormaps["viridis"]
 
 
 def parse_fig_formats(spec: str) -> frozenset[str]:
@@ -92,7 +88,6 @@ def apply_style() -> None:
             "figure.dpi": 120,
             "savefig.dpi": 200,
             "font.size": 11,
-            "axes.titlesize": 13,
             "axes.labelsize": 12,
             "axes.grid": True,
             "grid.alpha": 0.3,
@@ -104,8 +99,18 @@ def apply_style() -> None:
     )
 
 
+def _strip_titles(fig: plt.Figure) -> None:
+    """GuiaPresentaciones 1.7 / README: figures carry no in-plot title."""
+    sup = getattr(fig, "_suptitle", None)
+    if sup is not None:
+        sup.set_text("")
+    for ax in fig.axes:
+        ax.set_title("")
+
+
 def save(fig: plt.Figure, stem: Path) -> None:
     ensure_dir(stem.parent)
+    _strip_titles(fig)
     formats = fig_formats()
     for ext in sorted(formats):
         fig.savefig(stem.parent / f"{stem.name}.{ext}", bbox_inches="tight")
@@ -237,7 +242,11 @@ def _apply_s_clip(ax, limits: FamilyLimits, *, axis: str) -> FamilyLimits:
 def _stationary_limits(agg: pd.DataFrame, limits: FamilyLimits | None) -> FamilyLimits:
     if limits is not None:
         return limits
-    return family_limits(stationary_samples(agg), n_min_from(agg))
+    return _local_s_limits(agg)
+
+
+def _local_s_limits(frame: pd.DataFrame) -> FamilyLimits:
+    return family_limits(stationary_samples(frame), n_min_from(frame))
 
 
 def _temporal_limits(index, load_series, limits: FamilyLimits | None) -> FamilyLimits:
@@ -295,7 +304,7 @@ def _onset_cols(onset: pd.DataFrame) -> pd.DataFrame:
     return onset.loc[:, list(ONSET_COLUMNS)]
 
 
-def select_fig_b_runs(index: pd.DataFrame) -> pd.DataFrame:
+def select_fig_b_runs(index: pd.DataFrame, onset: pd.DataFrame | None = None) -> pd.DataFrame:
     rhos = [float(r) for r in index["rho"].unique()]
     target = 4.0 if any(rho_close(r, 4.0) for r in rhos) else (GENERAL_RHOS[0] if rhos else None)
     if target is None:
@@ -311,9 +320,21 @@ def select_fig_b_runs(index: pd.DataFrame) -> pd.DataFrame:
     chosen = at_rho.loc[
         at_rho["eta"].map(lambda eta: any(np.isclose(float(eta), target) for target in pick))
     ]
-    sort_cols = [column for column in ("model", "eta", "seed", "run_dir") if column in chosen.columns]
-    chosen = chosen.sort_values(sort_cols)
-    return chosen.drop_duplicates(subset=["model", "eta"], keep="first")
+    if onset is None:
+        onset = pd.DataFrame(columns=list(ONSET_COLUMNS))
+    status = pd.Series(dtype=object)
+    if not onset.empty:
+        status = _onset_cols(onset).drop_duplicates("run_dir").set_index("run_dir")["status_va"]
+    chosen = chosen.copy()
+    chosen["_usable"] = chosen["run_dir"].map(status).isin(USABLE)
+    sort_cols = ["_usable", "model", "eta"]
+    ascending = [False, True, True]
+    for column in ("seed", "run_dir"):
+        if column in chosen.columns:
+            sort_cols.append(column)
+            ascending.append(True)
+    chosen = chosen.sort_values(sort_cols, ascending=ascending)
+    return chosen.drop(columns=["_usable"]).drop_duplicates(subset=["model", "eta"], keep="first")
 
 
 def _b_items(frame: pd.DataFrame) -> list[tuple[pd.Series, str]]:
@@ -417,12 +438,17 @@ def draw_b(index, load_series, onset, *, series, fig_dir, compare, compare_dir=N
 
 def _plot_errorbar_curve(ax, chunk, ycol, yerr, model, rho) -> None:
     chunk = chunk.sort_values("eta")
-    y = chunk[ycol].to_numpy()
-    err = chunk[yerr].to_numpy()
-    finite_err = np.isfinite(err)
+    eta = chunk["eta"].to_numpy(dtype=float)
+    y = chunk[ycol].to_numpy(dtype=float)
+    err = chunk[yerr].to_numpy(dtype=float)
+    # Keep NaN in y so matplotlib breaks the line. Dropping them would draw
+    # η=3→4 across a point with no stationary va (the Vicsek transition).
+    finite = np.isfinite(y)
+    if not np.any(finite):
+        return
     color = _rho_color(float(rho))
     ax.plot(
-        chunk["eta"],
+        eta,
         y,
         linestyle=_line(str(model)),
         marker=_marker(float(rho)),
@@ -430,9 +456,10 @@ def _plot_errorbar_curve(ax, chunk, ycol, yerr, model, rho) -> None:
         label=f"{_model_name(model)} | ρ={float(rho):g}",
         **_fill_kwargs(model, color),
     )
+    finite_err = finite & np.isfinite(err)
     if np.any(finite_err):
         ax.errorbar(
-            chunk["eta"].to_numpy()[finite_err],
+            eta[finite_err],
             y[finite_err],
             yerr=err[finite_err],
             fmt="none",
@@ -643,73 +670,87 @@ def draw_d_eta(agg, *, fig_dir, compare=False, compare_dir=None, s_limits=None) 
     )
 
 
-def _add_eta_colorbar(ax) -> None:
-    mapped = ScalarMappable(cmap=ETA_CMAP, norm=ETA_NORM)
-    mapped.set_array([])
-    cbar = ax.figure.colorbar(mapped, ax=ax)
-    cbar.set_label(r"Ruido $\eta$")
-
-
 def _e_legend_handles(frame: pd.DataFrame) -> list[Line2D]:
     handles: list[Line2D] = []
-    seen: set[tuple[str, float]] = set()
-    for (model, rho), _chunk in frame.groupby(["model", "rho"], sort=True):
-        key = (str(model), float(rho))
-        if key in seen:
-            continue
-        seen.add(key)
+    models = sorted(str(model) for model in frame["model"].unique())
+    if len(models) > 1:
+        for model in models:
+            handles.append(
+                Line2D(
+                    [0],
+                    [0],
+                    linestyle=_line(model),
+                    marker="o",
+                    color="0.25",
+                    label=f"Modelo: {_model_name(model)}",
+                    **_fill_kwargs(model, "0.25"),
+                )
+            )
+    for rho in sorted(float(value) for value in frame["rho"].unique()):
+        color = _rho_color(rho)
         handles.append(
             Line2D(
                 [0],
                 [0],
-                linestyle="none",
-                marker=_marker(float(rho)),
-                color="0.25",
-                label=f"{_model_name(model)} | ρ={float(rho):g}",
-                **_fill_kwargs(model, "0.25"),
+                linestyle="-",
+                marker=_marker(rho),
+                color=color,
+                label=f"Densidad ρ={rho:g}",
+                markerfacecolor=color,
+                markeredgecolor=color,
             )
         )
     return handles
 
 
-def _plot_e_scatter(ax, chunk, model, rho) -> None:
+def _add_eta_arrow(ax, x: np.ndarray, y: np.ndarray, finite: np.ndarray, color: str, model: str) -> None:
+    adjacent = np.flatnonzero(finite[:-1] & finite[1:])
+    if adjacent.size == 0:
+        return
+    distances = (x[adjacent + 1] - x[adjacent]) ** 2 + (y[adjacent + 1] - y[adjacent]) ** 2
+    pair = int(adjacent[int(np.argmax(distances))])
+    if distances.max() <= 0:
+        return
+    ax.annotate(
+        "",
+        xy=(x[pair + 1], y[pair + 1]),
+        xytext=(x[pair], y[pair]),
+        arrowprops={
+            "arrowstyle": "-|>",
+            "color": color,
+            "linestyle": _line(model),
+            "linewidth": 1.2,
+            "mutation_scale": 11,
+            "shrinkA": 5,
+            "shrinkB": 5,
+        },
+        zorder=4,
+    )
+
+
+def _plot_e_curve(ax, chunk, model, rho) -> None:
     chunk = chunk.sort_values("eta")
     x = chunk["S_ss"].to_numpy(dtype=float)
     y = chunk["va_ss"].to_numpy(dtype=float)
-    etas = chunk["eta"].to_numpy(dtype=float)
     xerr = chunk[_yerr_col(chunk, "S")].to_numpy(dtype=float)
     yerr = chunk[_yerr_col(chunk, "va")].to_numpy(dtype=float)
-    colors = ETA_CMAP(ETA_NORM(etas))
     finite = np.isfinite(x) & np.isfinite(y)
     if not np.any(finite):
         return
-    x, y, etas, xerr, yerr, colors = x[finite], y[finite], etas[finite], xerr[finite], yerr[finite], colors[finite]
-    mark = _marker(float(rho))
-    if _is_vicsek(model):
-        ax.scatter(
-            x,
-            y,
-            c=etas,
-            cmap=ETA_CMAP,
-            norm=ETA_NORM,
-            marker=mark,
-            s=46,
-            linewidths=0.8,
-            edgecolors=colors,
-            zorder=3,
-        )
-    else:
-        ax.scatter(
-            x,
-            y,
-            facecolors="none",
-            edgecolors=colors,
-            marker=mark,
-            s=46,
-            linewidths=1.15,
-            zorder=3,
-        )
-    finite_err = np.isfinite(xerr) & np.isfinite(yerr)
+    color = _rho_color(float(rho))
+    ax.plot(
+        x,
+        y,
+        linestyle=_line(str(model)),
+        marker=_marker(float(rho)),
+        color=color,
+        linewidth=1.35,
+        markersize=5.5,
+        zorder=3,
+        **_fill_kwargs(model, color),
+    )
+    _add_eta_arrow(ax, x, y, finite, color, str(model))
+    finite_err = finite & np.isfinite(xerr) & np.isfinite(yerr)
     if np.any(finite_err):
         ax.errorbar(
             x[finite_err],
@@ -717,7 +758,8 @@ def _plot_e_scatter(ax, chunk, model, rho) -> None:
             xerr=xerr[finite_err],
             yerr=yerr[finite_err],
             fmt="none",
-            ecolor="0.45",
+            ecolor=color,
+            alpha=0.55,
             elinewidth=1.0,
             capsize=3,
             zorder=2,
@@ -726,7 +768,7 @@ def _plot_e_scatter(ax, chunk, model, rho) -> None:
 
 def _draw_e_frame(ax, frame) -> None:
     for (model, rho), chunk in frame.groupby(["model", "rho"], sort=True):
-        _plot_e_scatter(ax, chunk, model, rho)
+        _plot_e_curve(ax, chunk, model, rho)
 
 
 def _save_e_panel(stem: Path, frame: pd.DataFrame, limits: FamilyLimits) -> Path:
@@ -744,7 +786,15 @@ def _save_e_panel(stem: Path, frame: pd.DataFrame, limits: FamilyLimits) -> Path
     handles = _e_legend_handles(frame)
     if handles:
         ax.legend(handles=handles, loc="best", fontsize=8)
-    _add_eta_colorbar(ax)
+    ax.text(
+        0.02,
+        0.02,
+        r"Las flechas indican $\eta$ creciente",
+        transform=ax.transAxes,
+        fontsize=8,
+        color="0.35",
+        bbox={"facecolor": "white", "edgecolor": "none", "alpha": 0.75, "pad": 2},
+    )
     save(fig, stem)
     return stem
 
@@ -763,7 +813,11 @@ def draw_e(agg, *, fig_dir, compare=False, compare_dir=None, s_limits=None) -> l
         stems.append(_save_e_panel(fig_dir / file_stem("e", "va_vs_S", model=model), model_chunk, limits))
         for rho, rho_chunk in model_chunk.groupby("rho", sort=True):
             stems.append(
-                _save_e_panel(fig_dir / file_stem("e", "va_vs_S", model=model, rho=rho), rho_chunk, limits)
+                _save_e_panel(
+                    fig_dir / file_stem("e", "va_vs_S", model=model, rho=rho),
+                    rho_chunk,
+                    _local_s_limits(rho_chunk),
+                )
             )
     return stems
 

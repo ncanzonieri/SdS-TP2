@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 
 import numpy as np
@@ -27,6 +28,8 @@ class Detector:
     rtol: float = 0.05
     t_min: int = 100
     sustain: int = 3
+    tail_frac: float = 0.6
+    min_segment: int = 20
 
     @property
     def segments(self) -> int:
@@ -35,8 +38,14 @@ class Detector:
 
     @property
     def min_tail(self) -> int:
-        """Largo minimo de cola que permite decidir (`segments` tramos de `window`)."""
         return self.segments * self.window
+
+    def required_tail(self, n: int) -> int:
+        """Confirmation length after a candidate t0: min(window tail, frac of n)."""
+        floor = self.segments * self.min_segment
+        if n <= 0:
+            return max(self.min_tail, floor)
+        return min(self.min_tail, max(floor, math.ceil(self.tail_frac * n)))
 
 
 def detect_onset(t: np.ndarray, y: np.ndarray, detector: Detector, *, eps: float = 1e-12) -> Onset:
@@ -55,7 +64,8 @@ def detect_onset(t: np.ndarray, y: np.ndarray, detector: Detector, *, eps: float
     y_s = y_s[mask]
 
     size = y_s.size
-    if size < detector.min_tail:
+    need = detector.required_tail(size)
+    if size < need:
         return Onset(None, STATUS_SHORT)
 
     n_seg = detector.segments
@@ -63,7 +73,7 @@ def detect_onset(t: np.ndarray, y: np.ndarray, detector: Detector, *, eps: float
     # Como lista de floats de Python: el escaneo hace aritmetica escalar, no vectorial.
     cumsum = np.concatenate(([0.0], np.cumsum(y_s))).tolist()
 
-    for i in range(0, size - detector.min_tail + 1):
+    for i in range(0, size - need + 1):
         seg = (size - i) // n_seg
         end = i + n_seg * seg
         ref = (cumsum[end] - cumsum[i]) / (end - i)

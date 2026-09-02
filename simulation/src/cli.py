@@ -21,7 +21,19 @@ from src.io import (
 )
 from src.java import expand_numeric_list, run_engine
 from src.limits import compute_s_limits
-from src.paths import cache_dir, data_dir, ensure_assignment_tree, ensure_dir, make_batch, output_root, point_dir, repo_root
+from src.paths import (
+    cache_dir,
+    data_dir,
+    ensure_assignment_tree,
+    ensure_dir,
+    expand_user_path,
+    make_batch,
+    output_root,
+    point_dir,
+    repo_root,
+    resolve_batch_ref,
+    resolve_scan_root,
+)
 from src.plot import (
     FIG_CHOICES,
     default_rhos,
@@ -43,7 +55,7 @@ GENERAL_RHOS = "2,4,8"
 # enormes y necesitan mas realizaciones que las tres del enunciado.
 LOW_RHOS = "0.1061,0.1592,0.3183"
 PRODUCTION_ETAS = "0:6:0.5"
-PRODUCTION_T = "500"
+PRODUCTION_T = "2000"
 GENERAL_REPEATS = "5"
 LOW_REPEATS = "20"
 TALK_ETAS = "0.5,3.5,6"
@@ -89,7 +101,7 @@ def _add_steady(p: argparse.ArgumentParser) -> None:
     p.add_argument("--atol", type=float, default=0.02, help="tolerancia absoluta del detector")
     p.add_argument("--rtol", type=float, default=0.05, help="tolerancia relativa del detector")
     p.add_argument("--t-min", type=int, default=100, help="primer tiempo posible del estacionario")
-    p.add_argument("--sustain", type=int, default=3, help="ventanas estables consecutivas requeridas")
+    p.add_argument("--sustain", type=int, default=3, help="tramos extra de confirmación de la cola estacionaria")
     p.add_argument("--t-onset", type=int, default=None, help="forzar un mismo inicio estacionario")
     p.add_argument("--t-onset-csv", default=None, help="CSV con inicios estacionarios por corrida")
 
@@ -109,12 +121,7 @@ def _parse_floats(raw: str | None) -> list[float] | None:
 
 
 def _scan_root(ns: argparse.Namespace) -> Path:
-    root = repo_root()
-    if ns.out is not None:
-        return ns.out
-    if ns.batch:
-        return output_root(root) / "simulation" / ns.batch
-    return output_root(root)
+    return resolve_scan_root(out=ns.out, batch=ns.batch)
 
 
 def _cache(ns: argparse.Namespace) -> Path:
@@ -254,7 +261,7 @@ def _slice_for_kind(kind: str, ns, index, onset, agg):
     runs = _runs(ns)
     index = _filter_index(index, ns, rhos=rhos, runs=runs)
     if kind == "b" and runs is None:
-        index = select_fig_b_runs(index)
+        index = select_fig_b_runs(index, onset)
     if not onset.empty and "run_dir" in onset.columns:
         onset = onset.loc[onset["run_dir"].isin(index["run_dir"])]
     if not agg.empty:
@@ -616,22 +623,14 @@ def _batch_dirs() -> list[Path]:
 
 
 def _batch_cli_args(batch: str | Path) -> list[str]:
-    path = Path(batch)
-    if path.is_dir():
+    path = expand_user_path(str(batch)) if not isinstance(batch, Path) else batch
+    if path.is_absolute():
         return ["--out", str(path.resolve())]
     return ["--batch", str(batch)]
 
 
 def _expand_user_path(raw: str) -> Path:
-    if (
-        sys.platform == "win32"
-        and raw.startswith("/mnt/")
-        and len(raw) >= 7
-        and raw[5].isalpha()
-        and raw[6] == "/"
-    ):
-        raw = f"{raw[5]}:/{raw[7:]}"
-    return Path(raw).expanduser()
+    return expand_user_path(raw)
 
 
 def _ask_typed_batch_path() -> Path | None:
@@ -893,9 +892,7 @@ def _interactive_generate_data() -> int:
 
 
 def _interactive_animations(batch: str | Path) -> int:
-    batch_path = Path(batch)
-    if not batch_path.is_dir():
-        batch_path = output_root(repo_root()) / "simulation" / str(batch)
+    batch_path = resolve_batch_ref(batch)
     result = load_or_ingest(batch_path, cache=cache_dir())
     _print_ingest(result)
     if result.index.empty or "dynamic_path" not in result.index.columns:

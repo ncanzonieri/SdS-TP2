@@ -17,7 +17,7 @@ public final class ClusterFinder {
             recursiveAdd(particle,neighbors,cluster,visited);
         }
         clusters.sort(Comparator.comparingInt(Set::size));
-        return clusters.getFirst().size() / (double) particles.size();
+        return clusters.getLast().size() / (double) particles.size();
     }
 
     public static void recursiveAdd(Particle particle, Map<Particle, List<Particle>> neighbors, Set<Particle> cluster, Set<Particle> visited) {

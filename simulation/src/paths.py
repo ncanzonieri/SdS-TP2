@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import shutil
 import subprocess
+import sys
 from datetime import datetime
 from pathlib import Path
 
@@ -31,6 +32,39 @@ def repo_root(start: Path | None = None) -> Path:
 
 def output_root(root: Path | None = None) -> Path:
     return (root or repo_root()) / "output"
+
+
+def expand_user_path(raw: str) -> Path:
+    raw = str(raw).strip()
+    if (
+        sys.platform == "win32"
+        and raw.startswith("/mnt/")
+        and len(raw) >= 7
+        and raw[5].isalpha()
+        and raw[6] == "/"
+    ):
+        raw = f"{raw[5]}:/{raw[7:]}"
+    return Path(raw).expanduser()
+
+
+def resolve_scan_root(*, out: Path | None = None, batch: str | None = None, root: Path | None = None) -> Path:
+    """`--out` is a path. `--batch` is a name under output/simulation, unless it is absolute."""
+    base = root or repo_root()
+    if out is not None:
+        return Path(out)
+    if not batch:
+        return output_root(base)
+    typed = expand_user_path(str(batch))
+    if typed.is_absolute():
+        return typed
+    return output_root(base) / "simulation" / batch
+
+
+def resolve_batch_ref(batch: str | Path, *, root: Path | None = None) -> Path:
+    typed = expand_user_path(str(batch))
+    if typed.is_absolute():
+        return typed
+    return resolve_scan_root(batch=str(batch), root=root)
 
 
 def stamp(now: datetime | None = None) -> str:

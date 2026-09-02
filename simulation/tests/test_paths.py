@@ -4,7 +4,16 @@ from unittest.mock import patch
 
 import pytest
 
-from src.paths import POINT_FOLDERS, ensure_dir, iter_batch_dirs, make_batch, point_dir, stamp, windows_path
+from src.paths import (
+    POINT_FOLDERS,
+    ensure_dir,
+    iter_batch_dirs,
+    make_batch,
+    point_dir,
+    resolve_scan_root,
+    stamp,
+    windows_path,
+)
 
 
 def test_stamp_format():
@@ -18,6 +27,15 @@ def test_make_batch_and_iter(tmp_path):
     (batch / "vicsek_rho2_eta0_T10_seed1").mkdir()
     found = iter_batch_dirs(tmp_path / "output")
     assert batch in found
+
+
+def test_resolve_scan_root_name_vs_absolute(tmp_path):
+    named = resolve_scan_root(batch="2026-09-02_201710", root=tmp_path)
+    assert named == tmp_path / "output" / "simulation" / "2026-09-02_201710"
+    assert resolve_scan_root(out=tmp_path / "lote", root=tmp_path) == tmp_path / "lote"
+    assert resolve_scan_root(batch=str(tmp_path / "lote"), root=tmp_path) == tmp_path / "lote"
+    # A name that also exists as a cwd/package folder stays a batch name.
+    assert resolve_scan_root(batch="simulation", root=tmp_path) == tmp_path / "output" / "simulation" / "simulation"
 
 
 def test_windows_path_from_wsl_mnt():
