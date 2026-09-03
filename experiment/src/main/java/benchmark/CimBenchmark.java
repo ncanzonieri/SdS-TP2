@@ -36,13 +36,21 @@ public final class CimBenchmark {
         int reps = config.isRepeatsExplicit() ? config.getRepeats() : DEFAULT_REPS;
         Path outDir = config.isOutExplicit() ? config.getOutDir() : DEFAULT_OUT;
         List<Integer> ns = config.getExplicitNs() != null ? config.getExplicitNs() : DEFAULT_NS;
+        // --rho (primer valor) fija la densidad de la serie "rho fija"; sin el, se
+        // toma la de N=200 en la caja L (0.5 con L=20).
+        Double fixedRhoArg = config.isRhoExplicit() ? config.getRhos().get(0) : null;
         if (rc <= 0 || rc > L) {
             throw new IllegalArgumentException("--rc debe estar en (0, L] (L=" + L + ", rc=" + rc + ")");
         }
-        run(L, rc, ns, reps, outDir);
+        run(L, rc, ns, reps, outDir, fixedRhoArg);
     }
 
     public static void run(int L, double rc, List<Integer> ns, int reps, Path outDir) throws IOException {
+        run(L, rc, ns, reps, outDir, null);
+    }
+
+    public static void run(int L, double rc, List<Integer> ns, int reps, Path outDir, Double rhoOverride)
+            throws IOException {
         Files.createDirectories(outDir);
         Path fixedL = outDir.resolve("cim_times_L" + L + ".txt");
         writeSeries(fixedL, ns, n -> L, rc, reps,
@@ -50,7 +58,7 @@ public final class CimBenchmark {
                         L, format(rc), WARMUP, reps));
 
         int nRef = ns.contains(200) ? 200 : ns.get(ns.size() / 2);
-        double rho = (double) nRef / ((double) L * L);
+        double rho = rhoOverride != null ? rhoOverride : (double) nRef / ((double) L * L);
         int minL = Math.max(1, (int) Math.ceil(rc));
         Path fixedRho = outDir.resolve("cim_times_rho_fixed.txt");
         writeSeries(fixedRho, ns, n -> Math.max(minL, (int) Math.round(Math.sqrt(n / rho))), rc, reps,

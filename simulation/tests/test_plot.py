@@ -60,7 +60,7 @@ def test_fig_b_selects_one_low_mid_high_run_per_model():
 def test_fig_b_prefers_usable_onset_over_first_seed():
     rows = []
     onset_rows = []
-    for seed, status in ((1, "never"), (32, "ok")):
+    for seed, status in ((1, "too_short"), (32, "ok")):
         rows.append(
             {
                 "model": "vicsek",
@@ -277,7 +277,7 @@ def test_draw_d_time_skips_onset_when_not_usable(tmp_path):
         draw_d_time(
             _d_index(),
             load,
-            _d_onset(t_onset_S=2, status_S="never"),
+            _d_onset(t_onset_S=2, status_S="too_short"),
             fig_dir=tmp_path,
             compare=False,
         )

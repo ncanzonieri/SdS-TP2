@@ -15,7 +15,7 @@ import plotly.express as px
 from matplotlib.lines import Line2D
 
 from src.aggregate import USABLE
-from src.io import rho_close
+from src.io import read_tp1_csv, rho_close
 from src.limits import FamilyLimits, cover, family_limits, n_min_from, stationary_samples, temporal_samples
 from src.paths import ensure_dir
 
@@ -108,6 +108,24 @@ def _strip_titles(fig: plt.Figure) -> None:
         ax.set_title("")
 
 
+LEGEND_MAX_INSIDE = 6
+
+
+def place_legend(ax, handles=None, labels=None, *, max_inside: int = LEGEND_MAX_INSIDE, **kwargs) -> None:
+    """Leyenda adentro si es corta; afuera (derecha) si taparia las curvas."""
+    if handles is None or labels is None:
+        handles, labels = ax.get_legend_handles_labels()
+    if not handles:
+        return
+    kwargs = dict(kwargs)
+    if len(handles) > max_inside:
+        kwargs.pop("ncols", None)
+        kwargs.update(loc="upper left", bbox_to_anchor=(1.02, 1.0), borderaxespad=0.0)
+    else:
+        kwargs.setdefault("loc", "best")
+    ax.legend(handles, labels, **kwargs)
+
+
 def save(fig: plt.Figure, stem: Path) -> None:
     ensure_dir(stem.parent)
     _strip_titles(fig)
@@ -141,7 +159,7 @@ def save_curve_panel(
         ax.set_ylim(*ylim)
     if clip_s is not None:
         _apply_s_clip(ax, clip_s, axis=clip_axis)
-    ax.legend(**(legend_kwargs or {"loc": "best"}))
+    place_legend(ax, **(legend_kwargs or {}))
     save(fig, stem)
     return stem
 
@@ -379,13 +397,23 @@ def _save_b_figure(stem: Path, wanted: list[str], items, load_series, compare, s
             ax.set_ylim(*VA_YLIM)
         elif s_limits is not None:
             _apply_s_clip(ax, s_limits, axis="y")
-        ax.legend(loc="best", fontsize=8, ncols=2 if len(items) > 6 else 1)
+        place_legend(ax, max_inside=4, fontsize=8)
     axes[-1].set_xlabel(r"Tiempo $t$")
     save(fig, stem)
     return stem
 
 
-def draw_b(index, load_series, onset, *, series, fig_dir, compare, compare_dir=None, s_limits=None) -> list[Path]:
+def draw_b(
+    index,
+    load_series,
+    onset,
+    *,
+    series,
+    fig_dir,
+    compare,
+    compare_dir=None,
+    s_limits=None,
+) -> list[Path]:
     wanted = [s.strip() for s in series.split(",")]
     merged = index.merge(_onset_cols(onset), on="run_dir", how="left")
     if "S" in wanted:
@@ -785,7 +813,7 @@ def _save_e_panel(stem: Path, frame: pd.DataFrame, limits: FamilyLimits) -> Path
     ax.set_xlim(lo, hi + max(0.08 * span, 1.0 / limits.n_min))
     handles = _e_legend_handles(frame)
     if handles:
-        ax.legend(handles=handles, loc="best", fontsize=8)
+        place_legend(ax, handles, [h.get_label() for h in handles], max_inside=8, fontsize=8)
     ax.text(
         0.02,
         0.02,
@@ -822,34 +850,82 @@ def draw_e(agg, *, fig_dir, compare=False, compare_dir=None, s_limits=None) -> l
     return stems
 
 
-def draw_g(cim_frames: list[pd.DataFrame], *, fig_dir, tp1: Path | None, tp1_n_col: str, tp1_t_col: str) -> list[Path]:
+def _log_yerr(mean, err):
+    """Barras asimetricas para eje log.
+
+    Cuando sigma > media (distribuciones de tiempos con cola pesada) la barra
+    inferior cruzaria el cero; se la trunca a una decada por debajo de la media
+    (0.1*media). La superior se dibuja completa.
+    """
+    mean = np.asarray(mean, dtype=float)
+    err = np.asarray(err, dtype=float)
+    lower = np.minimum(err, 0.9 * mean)
+    return np.vstack([lower, err])
+
+
+def _tp1_series_label(frame: pd.DataFrame, value) -> str:
+    if "serie" in frame.columns and pd.notna(value) and str(value).strip():
+        return f"TP1 – {value}"
+    return "TP1 – CIM"
+
+
+def draw_g(
+    cim_frames: list[pd.DataFrame],
+    *,
+    fig_dir,
+    tp1: Path | None,
+    tp1_n_col: str,
+    tp1_t_col: str,
+    labels: list[str] | None = None,
+) -> list[Path]:
     apply_style()
     fig, ax = plt.subplots(figsize=(7, 4.5))
     for i, frame in enumerate(cim_frames):
+        if labels and i < len(labels):
+            label = labels[i]
+        else:
+            label = "TP2 – CIM" if len(cim_frames) == 1 else f"TP2 – CIM (serie {i + 1})"
         ax.errorbar(
             frame["N"],
             frame["mean_ms"],
-            yerr=frame["stdev_ns"] / 1e6 if "stdev_ns" in frame.columns else None,
+            yerr=_log_yerr(frame["mean_ms"], frame["stdev_ns"] / 1e6) if "stdev_ns" in frame.columns else None,
             marker="o",
             color=_color(i),
             capsize=4,
-            label="TP2 – CIM" if len(cim_frames) == 1 else f"TP2 – CIM (serie {i + 1})",
+            label=label,
         )
     if tp1 is not None and Path(tp1).is_file():
-        extra = pd.read_csv(tp1)
+        extra = read_tp1_csv(Path(tp1))
         missing = [c for c in (tp1_n_col, tp1_t_col) if c not in extra.columns]
         if missing:
             raise ValueError(
                 f"TP1 file {tp1} missing columns {missing}; "
                 f"have {list(extra.columns)}. Pass --tp1-n-col / --tp1-t-col."
             )
-        ax.plot(extra[tp1_n_col], extra[tp1_t_col], linestyle="--", marker="s", color=_color(4), label="TP1")
+        err_col = "stdev_ms" if "stdev_ms" in extra.columns else None
+        groups = extra.groupby("serie", sort=False) if "serie" in extra.columns else [(None, extra)]
+        for j, (serie, chunk) in enumerate(groups):
+            chunk = chunk.sort_values(tp1_n_col)
+            ax.errorbar(
+                chunk[tp1_n_col],
+                chunk[tp1_t_col],
+                yerr=_log_yerr(chunk[tp1_t_col], chunk[err_col]) if err_col else None,
+                linestyle="--",
+                marker="s",
+                color=_color(4 + j),
+                capsize=4,
+                label=_tp1_series_label(extra, serie),
+            )
     elif tp1:
         print(f"warning: TP1 file not found ({tp1}); plotting TP2 only", file=sys.stderr)
     else:
         print("warning: no --tp1 file; plotting TP2 CIM only", file=sys.stderr)
     ax.set_xlabel(r"Cantidad de partículas $N$")
     ax.set_ylabel("Tiempo medio del CIM (ms)")
+    # TP1 enunciado, punto 3: ejes en escala logaritmica cuando N o el tiempo
+    # abarcan varios ordenes de magnitud (N=10..1000, t=0.01..1 ms).
+    ax.set_xscale("log")
+    ax.set_yscale("log")
     ax.legend(loc="best")
     stem = fig_dir / file_stem("g", "cim_times")
     save(fig, stem)

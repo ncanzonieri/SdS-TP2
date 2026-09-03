@@ -54,6 +54,10 @@ def test_fig_c_and_b_write_files(tmp_path):
     ) == 0
     assert (figs / "c_va_vs_eta_vicsek.png").is_file()
     assert (figs / "c_va_vs_eta_votante.png").is_file()
+    # Las tablas del estacionario acompanan a las figuras (no van a output/data
+    # cuando se pide --fig-dir).
+    assert (figs / "estacionario_por_corrida.csv").is_file()
+    assert (figs / "estacionario_promedios.csv").is_file()
     assert not (figs / "c_va_vs_eta_vicsek.pdf").exists()
     assert not (figs / "c_va_vs_eta.png").exists()
     compared = tmp_path / "figs-compare"
@@ -354,8 +358,10 @@ def test_assignment_data_profiles_cover_both_density_families():
     assert low[low.index("--repeats") + 1] == "20"
     for args in (general, low):
         assert args[args.index("--eta") + 1] == "0:6:0.5"
-        assert args[args.index("--T") + 1] == "2000"
         assert "--dynamic" not in args
+    assert general[general.index("--T") + 1] == "10000"
+    # N=11..32: S(t) tiene tiempos de correlacion ~10^3 pasos; T=2000 no alcanza.
+    assert low[low.index("--T") + 1] == "10000"
     assert _production_run_counts() == (390, 1560)
 
     talk_general, talk_low = _talk_args()
@@ -377,7 +383,10 @@ def test_interactive_menu_has_three_user_facing_workflows():
 
 
 def test_tp1_prompt_asks_yes_or_no_before_requesting_path(tmp_path):
+    # Sin CSV del TP1 en simulation/tp1 el asistente pregunta; con el CSV
+    # cargado (caso real del repo) lo usa directo, por eso se anula aca.
     with (
+        patch("src.cli.default_tp1_csv", return_value=None),
         patch("src.cli.questionary.confirm") as confirm,
         patch("src.cli.questionary.text") as text,
     ):

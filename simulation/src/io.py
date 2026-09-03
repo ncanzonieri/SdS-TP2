@@ -171,6 +171,43 @@ def read_cim_series(path: Path) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
+def cim_label(path: Path) -> str:
+    """Leyenda de una serie del benchmark a partir del nombre de archivo."""
+    name = Path(path).stem
+    if name.startswith("cim_times_L"):
+        return f"TP2 – CIM (L={name[len('cim_times_L'):]} fijo)"
+    if name == "cim_times_rho_fixed":
+        return "TP2 – CIM (ρ fija, L crece con N)"
+    return f"TP2 – CIM ({name})"
+
+
+def tp1_dir() -> Path:
+    """Carpeta dentro de `simulation/` con los tiempos medidos en el TP1."""
+    return Path(__file__).resolve().parents[1] / "tp1"
+
+
+TP1_CSV_NAME = "cim_times_tp1.csv"
+
+
+def read_tp1_csv(path: Path) -> pd.DataFrame:
+    """CSV del TP1: lineas `#` son comentarios; tiene que traer N y un tiempo."""
+    frame = pd.read_csv(path, comment="#", skip_blank_lines=True)
+    frame.columns = [str(c).strip() for c in frame.columns]
+    return frame.dropna(how="all")
+
+
+def default_tp1_csv() -> Path | None:
+    """El CSV del TP1 si existe y ya tiene datos (no solo el encabezado)."""
+    path = tp1_dir() / TP1_CSV_NAME
+    if not path.is_file():
+        return None
+    try:
+        frame = read_tp1_csv(path)
+    except (ValueError, pd.errors.ParserError):
+        return None
+    return path if not frame.empty else None
+
+
 def find_cim(out_dir: Path) -> list[Path]:
     files: list[Path] = []
     for batch in iter_batch_dirs(out_dir):

@@ -44,7 +44,7 @@ Java `--eta` / `--rho` / `--N` lists are `from:to:step` (`0:6:0.5`), not MATLAB 
 
 > **Registro historico.** Esta seccion documenta la calibracion del perfil con
 > `T=10000`. El perfil que corre hoy vive en `src/cli.py` (`_production_args`) y
-> usa `T=2000` en dos tandas de densidades; ver `README.md`. La razon de fondo de
+> usa `T=10000` en las dos tandas; ver `README.md`. La razon de fondo de
 > la calibracion sigue valiendo y por eso se conserva.
 
 Calibration (measured, not invented):
@@ -60,7 +60,7 @@ Frozen knobs:
 - **η = `0:6:0.5`** (13 points). Java `from:to:step`.
 - **`--repeats 5`**, **`--seed 1`**. No `--dynamic` on the sweep.
 - Densities `{1/π, 1/(2π), 1/(3π), 2, 4, 8}` ≈ `0.3183,0.1592,0.1061,2,4,8`.
-- Detector (de aquella calibracion): `--window 200 --t-min 200 --sustain 3 --atol 0.02 --rtol 0.05`. Los defaults actuales son `--window 100 --t-min 100`. En T=500 la cola de confirmacion se achica para que t0 no quede clavado en t_min.
+- Detector (de aquella calibracion): `--window 200 --t-min 200 --sustain 3 --atol 0.02 --rtol 0.05`. **Reemplazado (2026-09-03)** por el criterio de banda estacionaria (`README.md`): promedio movil de 50 pasos comparado con los percentiles 2.5–97.5 de la segunda mitad de la corrida; `t_min=0`. El detector viejo partia la cola en 4 tramos y rechazaba corridas estacionarias con fluctuaciones grandes (transicion, votante a eta chico, N chico), lo que dejaba huecos en (c)/(d)/(e); ademas clavaba t0=100 en corridas que todavia subian.
 - **η_mid = 3.5** (talk catalog + `--eta-mid` default). 2.5 is still ordered at ρ=4 (`va≈0.66`).
 - Talk videos: `T_anim = 2000`, `--stride 5`, `--dynamic`, seed 1.
 
@@ -88,7 +88,7 @@ Status: CLI implemented. Sweep numbers frozen 2026-08-27. Production matrix not 
 - **(d)/(e) cluster ρ** `plot.CLUSTER_RHOS` = the three low densities plus the three from the statement (six curves). Java folders are `rho0.32` / `0.16` / `0.11` (`N/L²`); `rho_close` aliases those to `1/π`, `1/(2π)`, `1/(3π)` and still matches fixture `rho0.3183`. With `rc=1` the ρ={2,4,8} curves sit at `S≈1` for every η — that flatness is a result, not a bug, but the low densities are what make (d) and (e) informative.
 - **(e)** `va` vs `S`, densities distinguished, six ρ default. `fig-e --compare`.
 - **(f)** voter repeats (a)–(e); overlay both models on (b)–(e) via `--compare`; talk catalog includes votante.
-- **(g)** CIM times vs TP1. `run -- --cim-benchmark` then `fig-g --tp1 PATH`. Gap: no TP1 file in this repo.
+- **(g)** CIM times vs TP1. `run -- --cim-benchmark` then `fig-g`. The TP1 numbers live in `simulation/tp1/cim_times_tp1.csv` (template + `README.md`); the figure loads them automatically once the file has data rows. Pending: paste the TP1 measurements.
 - **General** animation + primary-observable time series per study: `animate --talk`, `fig-b`, `fig-d` time, `--compare`.
 - **General** Java writes text; `animate` reads `dynamic.txt` independently.
 

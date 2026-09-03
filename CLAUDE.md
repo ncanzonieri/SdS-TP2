@@ -20,7 +20,10 @@ El plan de implementación paso a paso vive en `PLAN_TP2.md` (raíz del repo) �
 - [x] **Paso 5 — CLI / barrido de η.** `Main` + `RunConfig`; carpetas `model_rho_eta_T_seed`.
 - [x] **Paso 6 — Benchmark del CIM (punto g).** `Main --cim-benchmark` → `out/cim/cim_times_L20.txt` y `cim_times_rho_fixed.txt`. Zip de entrega todavía no.
 
-Siguiente trabajo fuera del motor Java: animaciones, gráficos b–e, informe y presentación. El zip de entrega del código queda para el cierre.
+- [x] **Análisis y figuras (Python, `simulation/`).** CLI `simulation/main.py` (ver `simulation/README.md`): ingesta de los `.txt` de Java, detección del estacionario por corrida (banda estacionaria: promedio móvil de 50 pasos vs. percentiles 2.5–97.5 de la segunda mitad de la corrida; toda corrida recibe `t0`, las que siguen derivando en `t=T` quedan marcadas `drift`), figuras b–g y animaciones. Tablas para el informe en `output/data/estacionario_*.csv`. Barrido productivo (`T=10000`): ρ=2,4,8 ×5 semillas; densidades de clusters 1/π, 1/(2π), 1/(3π) ×20 semillas (S(t) tiene tiempos de correlación ~10³ pasos con N=11–32).
+- [x] **Tiempos del TP1 (punto g).** Cargados en `simulation/tp1/cim_times_tp1.csv` desde las corridas del TP1 (2026-08-10, ver `simulation/tp1/README.md`); la figura (g) los carga sola. Benchmark TP2 comparable: `--cim-benchmark --N 10,20,40,60,80,100,150,200,300,500,1000 --rho 0.25 --repeats 1000` (lote `2026-09-03_225504_cim`).
+
+Pendiente: corrida final T=10000 (comandos en `GUION_PRESENTACION.md`), informe y presentación. El zip de entrega del código queda para el cierre.
 
 Cuando trabajes conmigo (Claude Code) en este repo para el TP2, priorizá siempre lo que dice `Contexto_Teorico/docs/tp/TP2_Enunciado.md` (enunciado + parámetros del grupo) y las ecuaciones exactas en `Contexto_Teorico/docs/teoria/Teorica_2.md`, `Contexto_Teorico/docs/papers/NovelTypePhaseTransition2_Vicsek1995.md` y `Contexto_Teorico/docs/papers/PhysRevE104_034111_Loscar2021_VoterModel.md`.
 
@@ -30,6 +33,7 @@ Cuando trabajes conmigo (Claude Code) en este repo para el TP2, priorizá siempr
 SdS-TP2/
 ├── CLAUDE.md                    ← este archivo
 ├── PLAN_TP2.md                  ← plan de implementación paso a paso (guía del equipo)
+├── GUION_PRESENTACION.md        ← qué dice cada figura y qué (no) concluir; comandos de la corrida final
 ├── README.md                    ← notas originales del grupo (parámetros del TP2)
 ├── Contexto_Teorico/            ← todo el material de referencia (movido desde la raíz)
 │   ├── docs/                    ← réplica del contenido del Proyecto claude.ai

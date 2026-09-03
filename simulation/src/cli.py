@@ -8,16 +8,19 @@ from pathlib import Path
 
 import questionary
 
-from src.aggregate import Detector, ensemble, warn_ranges
+from src.aggregate import Detector, ensemble, onset_report, warn_ranges
 from src.animate import AnimateOpts, match_talk, run as animate_run
 from src.io import (
     IngestResult,
+    cim_label,
+    default_tp1_csv,
     find_cim,
     ingest,
     iter_dynamic_frames,
     load_or_ingest,
     load_series,
     read_cim_series,
+    tp1_dir,
 )
 from src.java import expand_numeric_list, run_engine
 from src.limits import compute_s_limits
@@ -55,7 +58,14 @@ GENERAL_RHOS = "2,4,8"
 # enormes y necesitan mas realizaciones que las tres del enunciado.
 LOW_RHOS = "0.1061,0.1592,0.3183"
 PRODUCTION_ETAS = "0:6:0.5"
-PRODUCTION_T = "2000"
+# rho=2,4,8: el votante a eta=0 tarda ~10^3 pasos en llegar al consenso y cerca
+# de la transicion las fluctuaciones tienen tiempos de correlacion de ~10^2-10^3.
+# Con N=800 son ~10 s por corrida a T=10000: la tanda completa ronda 1 h 15 min.
+PRODUCTION_T = "10000"
+# Con N=11..32 y v=0.03, S(t) tiene tiempos de correlacion de ~10^3 pasos: en
+# T=2000 todavia parece derivar. Esas corridas son baratas (~0.3 s cada una a
+# T=10000), asi que la tanda de clusters corre mucho mas larga.
+LOW_T = "10000"
 GENERAL_REPEATS = "5"
 LOW_REPEATS = "20"
 TALK_ETAS = "0.5,3.5,6"
@@ -69,7 +79,12 @@ def _detector(ns: argparse.Namespace) -> Detector:
         rtol=ns.rtol,
         t_min=ns.t_min,
         sustain=ns.sustain,
+        tail_frac=getattr(ns, "tail_frac", _DEFAULT_DETECTOR.tail_frac),
+        max_outside=getattr(ns, "max_outside", _DEFAULT_DETECTOR.max_outside),
     )
+
+
+_DEFAULT_DETECTOR = Detector()
 
 
 def _add_global(p: argparse.ArgumentParser) -> None:
@@ -97,11 +112,14 @@ def _add_global(p: argparse.ArgumentParser) -> None:
 
 
 def _add_steady(p: argparse.ArgumentParser) -> None:
-    p.add_argument("--window", type=int, default=100, help="ancho de ventana para detectar estacionario")
-    p.add_argument("--atol", type=float, default=0.02, help="tolerancia absoluta del detector")
-    p.add_argument("--rtol", type=float, default=0.05, help="tolerancia relativa del detector")
-    p.add_argument("--t-min", type=int, default=100, help="primer tiempo posible del estacionario")
-    p.add_argument("--sustain", type=int, default=3, help="tramos extra de confirmación de la cola estacionaria")
+    d = _DEFAULT_DETECTOR
+    p.add_argument("--window", type=int, default=d.window, help="ancho del promedio móvil que se compara con la banda estacionaria")
+    p.add_argument("--atol", type=float, default=d.atol, help="margen absoluto mínimo de la banda estacionaria")
+    p.add_argument("--rtol", type=float, default=d.rtol, help="margen de la banda relativo a su ancho")
+    p.add_argument("--t-min", type=int, default=d.t_min, help="primer tiempo posible del estacionario")
+    p.add_argument("--sustain", type=int, default=d.sustain, help="pasos seguidos dentro de la banda para aceptar t0")
+    p.add_argument("--tail-frac", type=float, default=d.tail_frac, help="fracción final de la corrida que define la banda")
+    p.add_argument("--max-outside", type=float, default=d.max_outside, help="fracción máxima fuera de la banda desde t0")
     p.add_argument("--t-onset", type=int, default=None, help="forzar un mismo inicio estacionario")
     p.add_argument("--t-onset-csv", default=None, help="CSV con inicios estacionarios por corrida")
 
@@ -170,7 +188,26 @@ def prepare(ns: argparse.Namespace):
     onset = agg = index
     if not index.empty:
         onset, agg = _agg(ns, index)
+        for line in onset_report(onset):
+            print(f"warning: {line}", file=sys.stderr)
+        fig_dir = getattr(ns, "fig_dir", None)
+        _write_stationary_tables(onset, agg, fig_dir if fig_dir is not None else data_dir())
     return index, onset, agg
+
+
+STATIONARY_COLUMNS = (
+    "model", "rho", "eta", "seed", "run_dir", "T",
+    "t_onset_va", "status_va", "band_lo_va", "band_hi_va",
+    "t_onset_S", "status_S", "band_lo_S", "band_hi_S",
+)
+
+
+def _write_stationary_tables(onset, agg, dest: Path) -> None:
+    """Tablas para el informe: t0 y banda por corrida, promedios por (modelo, ρ, η)."""
+    dest = ensure_dir(dest)
+    cols = [c for c in STATIONARY_COLUMNS if c in onset.columns]
+    onset.loc[:, cols].to_csv(dest / "estacionario_por_corrida.csv", index=False)
+    agg.to_csv(dest / "estacionario_promedios.csv", index=False)
 
 
 def _agg(ns: argparse.Namespace, index):
@@ -371,11 +408,32 @@ def cmd_fig_g(ns: argparse.Namespace) -> int:
     _apply_export(ns)
     if getattr(ns, "figs", "png") == "none":
         return 0
-    frames = [read_cim_series(p) for p in find_cim(_scan_root(ns))]
+    cim_paths = find_cim(_scan_root(ns))
+    if not cim_paths and ns.out is None:
+        # El benchmark del CIM vive en su propio lote; si el lote elegido no lo
+        # tiene, buscarlo en todos los lotes de output/simulation.
+        cim_paths = find_cim(output_root())
+        if cim_paths:
+            print(f"[config] CIM: {', '.join(str(p) for p in cim_paths)}")
+    if not cim_paths:
+        print("warning: no hay cim_times_*.txt en ningún lote; corré `simulate -- --cim-benchmark`", file=sys.stderr)
+    frames = [read_cim_series(p) for p in cim_paths]
+    tp1 = getattr(ns, "tp1", None)
+    if tp1 is None:
+        tp1 = default_tp1_csv()
+        if tp1 is not None:
+            print(f"[config] TP1: {tp1}")
+        else:
+            print(
+                f"warning: sin datos del TP1 en {tp1_dir()}; (g) muestra solo el TP2. "
+                "Completá simulation/tp1/cim_times_tp1.csv (ver simulation/tp1/README.md).",
+                file=sys.stderr,
+            )
     stems = draw_g(
         frames,
         fig_dir=_fig_dir(ns, "fig-g"),
-        tp1=getattr(ns, "tp1", None),
+        labels=[cim_label(p) for p in cim_paths],
+        tp1=tp1,
         tp1_n_col=getattr(ns, "tp1_n_col", "N"),
         tp1_t_col=getattr(ns, "tp1_t_col", "mean_ms"),
     )
@@ -757,7 +815,7 @@ def _n_runs(rhos: str, etas: str, repeats: str, *, models: int = 2) -> int:
     return models * _n_values(rhos) * _n_values(etas) * int(repeats)
 
 
-def _sweep_args(rhos: str, repeats: str) -> list[str]:
+def _sweep_args(rhos: str, repeats: str, steps: str = PRODUCTION_T) -> list[str]:
     return [
         "--model",
         "both",
@@ -766,7 +824,7 @@ def _sweep_args(rhos: str, repeats: str) -> list[str]:
         "--eta",
         PRODUCTION_ETAS,
         "--T",
-        PRODUCTION_T,
+        steps,
         "--repeats",
         repeats,
         "--seed",
@@ -783,7 +841,7 @@ def _production_args() -> list[tuple[str, list[str]]]:
     """
     return [
         (f"densidades del enunciado rho={{{GENERAL_RHOS}}}", _sweep_args(GENERAL_RHOS, GENERAL_REPEATS)),
-        (f"densidades de clusters rho={{{LOW_RHOS}}}", _sweep_args(LOW_RHOS, LOW_REPEATS)),
+        (f"densidades de clusters rho={{{LOW_RHOS}}}", _sweep_args(LOW_RHOS, LOW_REPEATS, LOW_T)),
     ]
 
 
@@ -797,9 +855,9 @@ def _production_run_counts() -> tuple[int, int]:
 def _production_summary() -> str:
     general, low = _production_run_counts()
     return (
-        f"{general + low} corridas de T={PRODUCTION_T} "
-        f"({general} en rho={{{GENERAL_RHOS}}} x{GENERAL_REPEATS}, "
-        f"{low} en rho={{{LOW_RHOS}}} x{LOW_REPEATS})"
+        f"{general + low} corridas "
+        f"({general} en rho={{{GENERAL_RHOS}}} x{GENERAL_REPEATS} con T={PRODUCTION_T}, "
+        f"{low} en rho={{{LOW_RHOS}}} x{LOW_REPEATS} con T={LOW_T})"
     )
 
 
@@ -1016,8 +1074,12 @@ def _interactive_outputs(batch: str | Path | None = None) -> int:
 
 
 def _ask_tp1_csv() -> Path | None:
+    bundled = default_tp1_csv()
+    if bundled is not None:
+        print(f"Tiempos del TP1: {bundled}")
+        return bundled
     has_tp1 = questionary.confirm(
-        "¿Tenés un archivo CSV con los tiempos medidos en el TP1?",
+        f"No hay tiempos del TP1 en {tp1_dir()}. ¿Tenés otro CSV con los tiempos medidos en el TP1?",
         default=False,
     ).ask()
     if not has_tp1:

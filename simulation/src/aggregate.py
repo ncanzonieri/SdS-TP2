@@ -1,89 +1,160 @@
-"""Steady-state onset (per observable) and ensemble means."""
+"""Steady-state onset (per observable) and ensemble means.
+
+Criterio del estacionario (punto b del enunciado)
+-------------------------------------------------
+Para cada corrida y cada observable `y(t)` (va o S):
+
+1. Se suaviza la serie con un promedio movil centrado de ancho `window`.
+2. La ultima fraccion `tail_frac` de la corrida define la *banda estacionaria*:
+   el rango entre los percentiles `quantile` y `1 - quantile` del promedio
+   movil en esa cola, ensanchado por `max(atol, rtol * ancho)`. La banda
+   captura la amplitud natural de las fluctuaciones del estacionario, asi que
+   cerca de la transicion (fluctuaciones grandes) la banda es ancha y lejos
+   (plateau) es angosta.
+3. `t0` es el primer instante a partir del cual el promedio movil entra en la
+   banda, permanece dentro al menos `sustain` pasos seguidos y desde ahi hasta
+   el final queda fuera de la banda a lo sumo una fraccion `max_outside` del
+   tiempo. Es decir: el transitorio termina cuando la serie ya fluctua como lo
+   hace en la cola.
+4. La cola se revisa por deriva: si las medias de sus dos mitades difieren en
+   mas de `max(2*atol, drift_tol * ancho_banda)` la serie sigue evolucionando
+   en t=T. El promedio se calcula igual (desde t0) pero la corrida queda
+   marcada `drift` para avisarlo en la consola y en las tablas.
+
+El valor escalar de cada corrida es el promedio temporal de `y` en `[t0, T]`;
+el valor del punto (modelo, rho, eta) es la media de esos promedios sobre las
+semillas, con su desvio estandar como barra de error.
+"""
 
 from __future__ import annotations
 
-import math
 from dataclasses import dataclass
 
 import numpy as np
 import pandas as pd
 
 STATUS_OK = "ok"
-STATUS_NEVER = "never"
+STATUS_DRIFT = "drift"
 STATUS_FORCED = "forced"
 STATUS_SHORT = "too_short"
-USABLE = {STATUS_OK, STATUS_FORCED}
+USABLE = {STATUS_OK, STATUS_DRIFT, STATUS_FORCED}
 
 
 @dataclass(frozen=True)
 class Onset:
     t_onset: int | None
     status: str
+    band_lo: float = float("nan")
+    band_hi: float = float("nan")
 
 
 @dataclass
 class Detector:
-    window: int = 100
-    atol: float = 0.02
-    rtol: float = 0.05
-    t_min: int = 100
-    sustain: int = 3
-    tail_frac: float = 0.6
-    min_segment: int = 20
+    window: int = 50
+    atol: float = 0.01
+    rtol: float = 0.10
+    t_min: int = 0
+    sustain: int = 100
+    tail_frac: float = 0.5
+    quantile: float = 0.025
+    max_outside: float = 0.10
+    drift_tol: float = 0.25
+    min_points: int = 10
 
-    @property
-    def segments(self) -> int:
-        """En cuantos tramos iguales se parte la cola para validarla."""
-        return self.sustain + 1
+    def effective_window(self, n: int) -> int:
+        """Ancho del promedio movil acotado por el largo de la serie."""
+        return max(1, min(self.window, n // 10))
 
-    @property
-    def min_tail(self) -> int:
-        return self.segments * self.window
+    def validate(self) -> None:
+        if self.window <= 0:
+            raise ValueError("window must be > 0")
+        if self.sustain <= 0:
+            raise ValueError("sustain must be > 0")
+        if not 0.0 < self.tail_frac < 1.0:
+            raise ValueError("tail_frac must be in (0, 1)")
+        if not 0.0 <= self.quantile < 0.5:
+            raise ValueError("quantile must be in [0, 0.5)")
+        if not 0.0 <= self.max_outside < 1.0:
+            raise ValueError("max_outside must be in [0, 1)")
 
-    def required_tail(self, n: int) -> int:
-        """Confirmation length after a candidate t0: min(window tail, frac of n)."""
-        floor = self.segments * self.min_segment
-        if n <= 0:
-            return max(self.min_tail, floor)
-        return min(self.min_tail, max(floor, math.ceil(self.tail_frac * n)))
+
+def moving_average(y: np.ndarray, w: int) -> np.ndarray:
+    """Promedio movil de ancho w; el elemento i cubre y[i : i + w]."""
+    y = np.asarray(y, dtype=float)
+    if w <= 1:
+        return y.copy()
+    cumsum = np.concatenate(([0.0], np.cumsum(y)))
+    return (cumsum[w:] - cumsum[:-w]) / w
 
 
-def detect_onset(t: np.ndarray, y: np.ndarray, detector: Detector, *, eps: float = 1e-12) -> Onset:
+def stationary_band(tail_ma: np.ndarray, detector: Detector) -> tuple[float, float]:
+    lo = float(np.quantile(tail_ma, detector.quantile))
+    hi = float(np.quantile(tail_ma, 1.0 - detector.quantile))
+    margin = max(detector.atol, detector.rtol * (hi - lo))
+    return lo - margin, hi + margin
+
+
+def _run_lengths_ahead(inside: np.ndarray) -> np.ndarray:
+    """run[i] = cantidad de True consecutivos empezando en i."""
+    run = np.zeros(inside.size, dtype=int)
+    count = 0
+    for i in range(inside.size - 1, -1, -1):
+        count = count + 1 if inside[i] else 0
+        run[i] = count
+    return run
+
+
+def detect_onset(t: np.ndarray, y: np.ndarray, detector: Detector) -> Onset:
+    detector.validate()
     t = np.asarray(t, dtype=int)
     y = np.asarray(y, dtype=float)
     if t.size != y.size:
         raise ValueError("t and y must have the same length")
-    if detector.window <= 0 or detector.sustain <= 0:
-        raise ValueError("window and sustain must be > 0")
 
-    order = np.argsort(t)
+    order = np.argsort(t, kind="stable")
     t_s = t[order]
     y_s = y[order]
     mask = t_s >= detector.t_min
     t_s = t_s[mask]
     y_s = y_s[mask]
 
-    size = y_s.size
-    need = detector.required_tail(size)
-    if size < need:
+    n = int(y_s.size)
+    if n < max(detector.min_points, 4):
         return Onset(None, STATUS_SHORT)
 
-    n_seg = detector.segments
-    # cumsum[k] = suma de y_s[:k]; da la media de cualquier tramo en O(1).
-    # Como lista de floats de Python: el escaneo hace aritmetica escalar, no vectorial.
-    cumsum = np.concatenate(([0.0], np.cumsum(y_s))).tolist()
+    w = detector.effective_window(n)
+    ma = moving_average(y_s, w)
+    m = int(ma.size)
+    centers = np.arange(m) + w // 2
 
-    for i in range(0, size - need + 1):
-        seg = (size - i) // n_seg
-        end = i + n_seg * seg
-        ref = (cumsum[end] - cumsum[i]) / (end - i)
-        tol = detector.atol + detector.rtol * max(abs(ref), eps)
-        if all(
-            abs((cumsum[a + seg] - cumsum[a]) / seg - ref) <= tol
-            for a in range(i, end, seg)
-        ):
-            return Onset(int(t_s[i]), STATUS_OK)
-    return Onset(None, STATUS_NEVER)
+    tail_i0 = int(np.floor(m * (1.0 - detector.tail_frac)))
+    tail_i0 = min(max(tail_i0, 0), m - 1)
+    tail_ma = ma[tail_i0:]
+    lo, hi = stationary_band(tail_ma, detector)
+    inside = (ma >= lo) & (ma <= hi)
+
+    sustain = max(1, min(detector.sustain, m - tail_i0))
+    run_ahead = _run_lengths_ahead(inside)
+    outside_suffix = np.cumsum((~inside)[::-1])[::-1]
+    remaining = m - np.arange(m)
+    outside_frac = outside_suffix / remaining
+
+    candidates = np.flatnonzero((run_ahead >= sustain) & (outside_frac <= detector.max_outside))
+    if candidates.size:
+        i = int(candidates[0])
+    else:
+        # La cola define la banda, asi que casi siempre hay candidato. Si no lo
+        # hay (cola muy irregular) se promedia la cola entera.
+        i = tail_i0
+    t0 = int(t_s[0]) if i == 0 else int(t_s[min(centers[i], n - 1)])
+
+    # Deriva: la cola sigue moviendose en t=T.
+    tail_y = y_s[n - max(2, int(np.floor(n * detector.tail_frac))):]
+    half = tail_y.size // 2
+    drift = abs(float(np.mean(tail_y[:half])) - float(np.mean(tail_y[half:])))
+    threshold = max(2.0 * detector.atol, detector.drift_tol * (hi - lo))
+    status = STATUS_DRIFT if drift > threshold else STATUS_OK
+    return Onset(t0, status, lo, hi)
 
 
 def detect_run(
@@ -97,14 +168,18 @@ def detect_run(
     va = detect_onset(t, observables["va"].to_numpy(), detector)
     s = detect_onset(t, observables["S"].to_numpy(), detector)
     if force_va is not None:
-        va = Onset(int(force_va), STATUS_FORCED)
+        va = Onset(int(force_va), STATUS_FORCED, va.band_lo, va.band_hi)
     if force_s is not None:
-        s = Onset(int(force_s), STATUS_FORCED)
+        s = Onset(int(force_s), STATUS_FORCED, s.band_lo, s.band_hi)
     return {
         "t_onset_va": va.t_onset,
         "status_va": va.status,
+        "band_lo_va": va.band_lo,
+        "band_hi_va": va.band_hi,
         "t_onset_S": s.t_onset,
         "status_S": s.status,
+        "band_lo_S": s.band_lo,
+        "band_hi_S": s.band_hi,
     }
 
 
@@ -152,6 +227,7 @@ def ensemble(
     t_onset: int | None = None,
     t_onset_csv: str | None = None,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Onset por corrida + promedios por (modelo, rho, eta)."""
     forces = _force_map(t_onset_csv, t_onset)
     onset_rows: list[dict] = []
     ss_rows: list[dict] = []
@@ -206,6 +282,8 @@ def ensemble(
                 "eta": float(eta),
                 "n_runs_va": n_va,
                 "n_runs_S": n_s,
+                "n_drift_va": int((chunk["status_va"] == STATUS_DRIFT).sum()),
+                "n_drift_S": int((chunk["status_S"] == STATUS_DRIFT).sum()),
                 "t_onset_va_median": chunk.loc[chunk["status_va"].isin(USABLE), "t_onset_va"].median(),
                 "t_onset_S_median": chunk.loc[chunk["status_S"].isin(USABLE), "t_onset_S"].median(),
                 "va_ss": float(va.mean()) if n_va else float("nan"),
@@ -218,6 +296,39 @@ def ensemble(
         )
     agg = pd.DataFrame(grouped)
     return onset, agg
+
+
+def onset_report(onset: pd.DataFrame) -> list[str]:
+    """Lineas de aviso: corridas que no alcanzaron un estacionario limpio."""
+    messages: list[str] = []
+    if onset.empty:
+        return messages
+    for col, label in (("status_va", "va"), ("status_S", "S")):
+        if col not in onset.columns:
+            continue
+        short = onset.loc[onset[col] == STATUS_SHORT]
+        drift = onset.loc[onset[col] == STATUS_DRIFT]
+        if not short.empty:
+            messages.append(
+                f"{label}: {len(short)} corridas demasiado cortas para detectar el estacionario "
+                f"(sin valor): {', '.join(short['run_dir'].astype(str).head(5))}"
+                + (" ..." if len(short) > 5 else "")
+            )
+        if not drift.empty:
+            groups = (
+                drift.groupby(["model", "rho", "eta"], sort=True)["run_dir"]
+                .size()
+                .reset_index(name="n")
+            )
+            described = ", ".join(
+                f"{row['model']} ρ={float(row['rho']):g} η={float(row['eta']):g} ({int(row['n'])})"
+                for _, row in groups.iterrows()
+            )
+            messages.append(
+                f"{label}: {len(drift)} corridas siguen derivando en t=T (se promedian igual desde t0, "
+                f"conviene alargar T): {described}"
+            )
+    return messages
 
 
 def warn_ranges(series: pd.DataFrame) -> list[str]:

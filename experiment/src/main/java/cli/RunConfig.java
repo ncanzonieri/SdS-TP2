@@ -37,6 +37,7 @@ public class RunConfig {
     private boolean rcExplicit = false;
     private boolean repeatsExplicit = false;
     private boolean outExplicit = false;
+    private boolean rhoExplicit = false;
     private List<Double> rhos = List.of(2.0, 4.0, 8.0);
     private List<Integer> explicitNs = null;
     private List<Double> etas = parseNumberList("0:6:0.5");
@@ -61,6 +62,8 @@ public class RunConfig {
               --v <double>      modulo de la velocidad                         (0.03)
               --rc <double>     radio de interaccion                           (1.0)
               --cim-benchmark   solo tiempos del CIM (punto g); no simula      (desactivado)
+                                con --N elige los N a medir y con --rho la densidad
+                                de la serie "rho fija" (default: la de N=200 en L)
               --help            muestra esta ayuda
 
             Las <lista> aceptan valores separados por coma (0.1,0.5,2) o un rango
@@ -97,7 +100,10 @@ public class RunConfig {
                 case "--dynamic" -> config.writeDynamic = true;
                 case "--cim-benchmark" -> config.cimBenchmark = true;
                 case "--model" -> config.models = parseModels(next(args, ++i, arg));
-                case "--rho" -> config.rhos = parseNumberList(next(args, ++i, arg));
+                case "--rho" -> {
+                    config.rhos = parseNumberList(next(args, ++i, arg));
+                    config.rhoExplicit = true;
+                }
                 case "--N" -> config.explicitNs = parseNumberList(next(args, ++i, arg))
                         .stream().map(Double::intValue).toList();
                 case "--eta" -> config.etas = parseNumberList(next(args, ++i, arg));
@@ -290,5 +296,13 @@ public class RunConfig {
 
     public boolean isOutExplicit() {
         return outExplicit;
+    }
+
+    public boolean isRhoExplicit() {
+        return rhoExplicit;
+    }
+
+    public List<Double> getRhos() {
+        return rhos;
     }
 }

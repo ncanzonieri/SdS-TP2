@@ -2,7 +2,15 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from src.aggregate import Detector, detect_onset, detect_run, ensemble, steady_mean
+from src.aggregate import (
+    Detector,
+    detect_onset,
+    detect_run,
+    ensemble,
+    moving_average,
+    onset_report,
+    steady_mean,
+)
 
 
 def _series(t_end=400, va_onset=80, s_onset=160):
@@ -33,70 +41,41 @@ def _index_row(run_dir, seed=1):
     }
 
 
-def test_known_plateau():
+def test_moving_average_covers_forward_window():
+    y = np.array([0.0, 1.0, 2.0, 3.0, 4.0])
+    assert np.allclose(moving_average(y, 2), [0.5, 1.5, 2.5, 3.5])
+    assert np.allclose(moving_average(y, 1), y)
+
+
+def test_known_plateau_onset_sits_at_the_step():
     t = np.arange(0, 400)
     y = np.where(t < 80, 0.1, 0.9)
-    onset = detect_onset(t, y, _d(20, 0.02, 0.05, 10, 3))
+    onset = detect_onset(t, y, _d(20, 0.02, 0.05, 10, 10))
     assert onset.status == "ok"
-    assert onset.t_onset is not None
-    assert 10 <= onset.t_onset <= 80 + 40
+    assert 80 <= onset.t_onset <= 100
+    assert onset.band_lo < 0.9 < onset.band_hi
 
 
-def test_noise_never():
-    rng = np.random.default_rng(0)
-    t = np.arange(0, 300)
-    y = rng.normal(0.5, 0.2, size=t.size)
-    onset = detect_onset(t, y, _d(20, 0.001, 0.0, 10, 3))
-    assert onset.status == "never"
-    assert onset.t_onset is None
-
-
-def test_too_short():
-    t = np.arange(10)
-    y = np.ones(10)
-    onset = detect_onset(t, y, _d(20, 0.02, 0.05, 5, 3))
-    assert onset.status == "too_short"
-
-
-def test_default_detector_accepts_t500_series():
-    t = np.arange(501)
-    y = np.full(t.size, 0.8)
+def test_smooth_rise_onset_waits_for_the_plateau():
+    """Regresion: con t_min=100 fijo, una serie que todavia sube a t=100 se
+    promediaba desde ahi. t0 tiene que esperar a que la serie llegue al plateau."""
+    t = np.arange(0, 2001)
+    y = 0.98 - 0.9 * np.exp(-t / 50.0)
     onset = detect_onset(t, y, Detector())
     assert onset.status == "ok"
-    assert onset.t_onset == 100
+    # y llega a 0.97 (dentro de 0.01 del plateau) en t = 50*ln(90) ~ 225
+    assert 150 <= onset.t_onset <= 350
 
 
-def test_sustain_adds_real_evidence():
-    """Cola en V: las dos mitades coinciden, los cuatro cuartos no.
-
-    Con ventanas corridas y solapadas `sustain` no distinguia estos dos casos.
-    """
-    t = np.arange(0, 400)
-    y = np.concatenate(
-        [np.full(100, 0.5), np.full(100, 0.3), np.full(100, 0.3), np.full(100, 0.5)]
-    )
-    assert detect_onset(t, y, _d(100, 0.02, 0.05, 0, 1)).status == "ok"
-    assert detect_onset(t, y, _d(100, 0.02, 0.05, 0, 3)).status == "never"
-
-
-def test_wandering_series_is_not_stationary():
-    """Regresion: la forma de votante eta=0 truncado a T=500.
-
-    va deambula (0.38 -> 0.53 -> 0.39) sin haber llegado al estacionario; el
-    valor real de la corrida larga es 1.0. El criterio de ventanas corridas la
-    aceptaba con t0=207 y estimaba 0.52.
-    """
-    t = np.arange(0, 501)
-    y = np.concatenate(
-        [
-            np.full(100, 0.20),
-            np.full(100, 0.38),
-            np.full(100, 0.53),
-            np.full(100, 0.45),
-            np.full(101, 0.39),
-        ]
-    )
-    assert detect_onset(t, y, Detector()).status == "never"
+def test_noisy_stationary_series_is_accepted_early():
+    """Alto ruido: va fluctua alrededor de un valor desde t=0. No hay
+    transitorio que esperar y la corrida NO se descarta."""
+    rng = np.random.default_rng(0)
+    t = np.arange(0, 2001)
+    y = rng.normal(0.5, 0.2, size=t.size)
+    onset = detect_onset(t, y, Detector())
+    assert onset.status == "ok"
+    assert onset.t_onset <= 100
 
 
 def test_large_stationary_fluctuations_are_accepted():
@@ -109,27 +88,54 @@ def test_large_stationary_fluctuations_are_accepted():
     y = 0.43 + 0.15 * np.sin(2 * np.pi * t / 137.0)
     onset = detect_onset(t, y, Detector())
     assert onset.status == "ok"
+    assert onset.t_onset <= 150
+
+
+def test_transient_dips_inside_the_stationary_state_do_not_delay_onset():
+    """Vicsek rho=2 eta=2: plateau ~0.8 con caidas breves (la bandada se rompe y
+    se rearma). Las caidas son parte del estacionario, no un transitorio."""
+    t = np.arange(0, 2001)
+    y = np.where(t < 100, 0.1, 0.8)
+    y[(t >= 600) & (t < 650)] = 0.3
+    y[(t >= 1500) & (t < 1550)] = 0.3
+    onset = detect_onset(t, y, Detector())
+    assert onset.status == "ok"
+    assert 80 <= onset.t_onset <= 130
+
+
+def test_series_still_drifting_at_the_end_is_flagged_but_measured():
+    t = np.arange(0, 2001)
+    y = 0.2 + 0.6 * t / t[-1]
+    onset = detect_onset(t, y, Detector())
+    assert onset.status == "drift"
+    assert onset.t_onset is not None
+
+
+def test_too_short():
+    t = np.arange(5)
+    y = np.ones(5)
+    onset = detect_onset(t, y, Detector())
+    assert onset.status == "too_short"
+    assert onset.t_onset is None
+
+
+def test_constant_series_starts_at_zero():
+    t = np.arange(0, 500)
+    y = np.ones(t.size)
+    onset = detect_onset(t, y, Detector())
+    assert onset.status == "ok"
+    assert onset.t_onset == 0
+
+
+def test_t_min_is_a_floor_for_the_onset():
+    t = np.arange(0, 500)
+    y = np.full(t.size, 0.8)
+    onset = detect_onset(t, y, Detector(t_min=100))
+    assert onset.status == "ok"
     assert onset.t_onset == 100
 
 
-def test_tail_shorter_than_required_is_too_short():
-    det = Detector()
-    assert det.min_tail == 400
-    # Corrida larga: se conserva el window configurado.
-    assert det.required_tail(9900) == 400
-    # T=500 (n=401 tras t_min=100): achica la cola para poder barrer t0.
-    assert 240 <= det.required_tail(401) < 400
-    t = np.arange(0, 150)
-    y = np.full(t.size, 0.8)
-    assert detect_onset(t, y, det).status == "too_short"
-
-
-def test_t500_onset_follows_the_plateau_not_t_min():
-    """Con T=500 el min_tail=400 dejaba un solo candidato: t=100.
-
-    La linea de (b) quedaba bien si el plateau empezaba antes, y mal si la
-    serie todavia subia. t0 tiene que correrse con esa curva.
-    """
+def test_onset_follows_the_plateau_not_t_min():
     t = np.arange(0, 501)
     early = np.where(t < 70, 0.15, 0.92)
     late = np.where(t < 220, 0.15, 0.92)
@@ -137,9 +143,8 @@ def test_t500_onset_follows_the_plateau_not_t_min():
     l = detect_onset(t, late, Detector())
     assert e.status == "ok"
     assert l.status == "ok"
-    assert e.t_onset == 100
-    assert 200 <= l.t_onset <= 240
-    assert l.t_onset > e.t_onset
+    assert 70 <= e.t_onset <= 100
+    assert 220 <= l.t_onset <= 250
 
 
 def test_dual_onset_independent():
@@ -148,11 +153,11 @@ def test_dual_onset_independent():
     rec = detect_run(frame, det)
     assert rec["status_va"] == "ok"
     assert rec["status_S"] == "ok"
-    assert rec["t_onset_va"] != rec["t_onset_S"]
+    assert rec["t_onset_va"] < rec["t_onset_S"]
     va_ss, _va_std = steady_mean(frame["t"].to_numpy(), frame["va"].to_numpy(), rec["t_onset_va"])
     s_ss, _s_std = steady_mean(frame["t"].to_numpy(), frame["S"].to_numpy(), rec["t_onset_S"])
-    assert va_ss > 0.8
-    assert s_ss > 0.7
+    assert va_ss > 0.85
+    assert s_ss > 0.8
 
 
 def test_steady_mean_temporal_std_on_plateau():
@@ -165,25 +170,7 @@ def test_steady_mean_temporal_std_on_plateau():
     assert temporal_std == pytest.approx(float(np.std(tail, ddof=1)))
 
 
-def test_atol_changes_onset():
-    t = np.arange(0, 300)
-    y = 0.9 - 0.4 * np.exp(-t / 80.0)
-    loose = detect_onset(t, y, _d(20, 0.05, 0.0, 10, 3))
-    tight = detect_onset(t, y, _d(20, 0.001, 0.0, 10, 3))
-    assert loose.status == "ok"
-    if tight.status == "ok":
-        assert tight.t_onset >= loose.t_onset
-    else:
-        assert tight.status == "never"
-
-
 def test_ensemble_detects_t0_per_run_and_never_forces_by_model():
-    """t0 lo decide el detector corrida por corrida.
-
-    Antes habia una constante por modelo (200 Vicsek / 2500 votante) que se
-    aplicaba segun el largo declarado de la corrida, asi que dos modelos en la
-    misma figura terminaban con criterios distintos.
-    """
     index = pd.DataFrame(
         [
             {**_index_row("vicsek-500"), "model": "vicsek", "T": 500},
@@ -200,7 +187,6 @@ def test_ensemble_detects_t0_per_run_and_never_forces_by_model():
     onset, _agg = ensemble(index, load, det)
 
     assert set(onset["status_va"]) == {"ok"}
-    # Misma serie: mismo t0, sin importar el modelo ni el T declarado.
     assert onset["t_onset_va"].nunique() == 1
     assert onset.iloc[0]["t_onset_va"] == detect_run(serie, det)["t_onset_va"]
 
@@ -230,6 +216,25 @@ def test_ensemble_n1_no_std():
     assert np.isfinite(agg.iloc[0]["va_ss_err"])
 
 
+def test_ensemble_keeps_drifting_runs_and_counts_them():
+    t = np.arange(0, 2001)
+    frames = {
+        "flat": pd.DataFrame({"t": t, "va": np.full(t.size, 0.5), "S": np.full(t.size, 0.5)}),
+        "ramp": pd.DataFrame({"t": t, "va": 0.2 + 0.6 * t / t[-1], "S": np.full(t.size, 0.5)}),
+    }
+    rows = [_index_row("flat", seed=1), _index_row("ramp", seed=2)]
+
+    def load(row):
+        return frames[row["run_dir"]]
+
+    onset, agg = ensemble(pd.DataFrame(rows), load, Detector())
+    assert int(agg.iloc[0]["n_runs_va"]) == 2
+    assert int(agg.iloc[0]["n_drift_va"]) == 1
+    assert np.isfinite(agg.iloc[0]["va_ss"])
+    report = onset_report(onset)
+    assert any("derivando" in line for line in report)
+
+
 def test_ensemble_err_is_mean_temporal_std_not_variance_or_sem():
     t = np.arange(0, 20)
     t_onset = 10
@@ -255,3 +260,4 @@ def test_ensemble_err_is_mean_temporal_std_not_variance_or_sem():
     assert err == pytest.approx(expected_err)
     assert not np.isclose(err, std**2)
     assert not np.isclose(err, std / np.sqrt(n))
+
