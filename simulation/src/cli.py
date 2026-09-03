@@ -70,6 +70,13 @@ GENERAL_REPEATS = "5"
 LOW_REPEATS = "20"
 TALK_ETAS = "0.5,3.5,6"
 ETA_MID = "3.5"
+# Benchmark del CIM con los mismos N y la misma densidad fija que las
+# mediciones del TP1 cargadas en simulation/tp1/cim_times_tp1.csv, para que
+# el punto (g) compare punto a punto.
+CIM_NS = "10,20,40,60,80,100,150,200,300,500,1000"
+CIM_RHO = "0.25"
+CIM_REPEATS = "1000"
+CIM_ARGS = ["--cim-benchmark", "--N", CIM_NS, "--rho", CIM_RHO, "--repeats", CIM_REPEATS]
 
 
 def _detector(ns: argparse.Namespace) -> Detector:
@@ -416,7 +423,7 @@ def cmd_fig_g(ns: argparse.Namespace) -> int:
         if cim_paths:
             print(f"[config] CIM: {', '.join(str(p) for p in cim_paths)}")
     if not cim_paths:
-        print("warning: no hay cim_times_*.txt en ningún lote; corré `simulate -- --cim-benchmark`", file=sys.stderr)
+        print("warning: no hay cim_times_*.txt en ningún lote; corré `simulate -- " + " ".join(CIM_ARGS) + "`", file=sys.stderr)
     frames = [read_cim_series(p) for p in cim_paths]
     tp1 = getattr(ns, "tp1", None)
     if tp1 is None:
@@ -908,8 +915,8 @@ def _generate_talk_data() -> Path:
 
 
 def _generate_cim_data() -> Path:
-    print("Ejecutando benchmark del Cell Index Method...")
-    out = run_engine(["--cim-benchmark"])
+    print("Ejecutando benchmark del Cell Index Method (N y densidad fija del TP1)...")
+    out = run_engine(list(CIM_ARGS))
     print(f"Benchmark guardado en: {out}")
     return out
 
@@ -1135,7 +1142,7 @@ def _existing_assignment_batches() -> tuple[str | Path, str | Path, str | Path] 
     if analysis is None:
         return None
     animations = _choose_batch(
-        "Lote de las 18 corridas animables (dynamic.txt):",
+        "Lote de las 24 corridas animables (dynamic.txt):",
         need_dynamic=True,
     )
     if animations is None:
