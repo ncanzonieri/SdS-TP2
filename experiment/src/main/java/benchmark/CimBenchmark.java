@@ -19,13 +19,13 @@ import java.util.function.IntUnaryOperator;
  */
 public final class CimBenchmark {
 
-    public static final int DEFAULT_L = 20;
+    public static final int DEFAULT_L = 10;
     public static final double DEFAULT_RC = 1.0;
     public static final int DEFAULT_REPS = 200;
     public static final int WARMUP = 20;
     public static final Path DEFAULT_OUT = Path.of("out/cim");
     public static final List<Integer> DEFAULT_NS = List.of(
-            10, 25, 50, 75, 100, 150, 200, 300, 400, 500, 800, 1000);
+            5, 10, 20, 30, 50, 75, 100, 150, 200, 250);
 
     private CimBenchmark() {
     }
@@ -36,8 +36,7 @@ public final class CimBenchmark {
         int reps = config.isRepeatsExplicit() ? config.getRepeats() : DEFAULT_REPS;
         Path outDir = config.isOutExplicit() ? config.getOutDir() : DEFAULT_OUT;
         List<Integer> ns = config.getExplicitNs() != null ? config.getExplicitNs() : DEFAULT_NS;
-        // --rho (primer valor) fija la densidad de la serie "rho fija"; sin el, se
-        // toma la de N=200 en la caja L (0.5 con L=20).
+
         Double fixedRhoArg = config.isRhoExplicit() ? config.getRhos().get(0) : null;
         if (rc <= 0 || rc > L) {
             throw new IllegalArgumentException("--rc debe estar en (0, L] (L=" + L + ", rc=" + rc + ")");

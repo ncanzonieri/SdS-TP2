@@ -1,24 +1,26 @@
 # Tiempos del Cell Index Method medidos en el TP1 (punto g del TP2).
-# Fuente: TP-1-SdS/simulation/outputs, corridas del 2026-08-10 (copiadas en tmp/):
-#   "L=20 fijo"     <- sweep_vary_n/L20_M13_rc1_wrap_N10-1000_20260810_182324/timing_summary.csv   (TP1 punto 4.1)
-#   "rho=0.25 fija" <- sweep_fixed_density/rho0.25_M13_rc1_wrap_N100-1000_20260810_182502/timing_summary.csv (TP1 punto 4.2)
-# Condiciones del TP1: rc=1, M=13 (optimo del punto 3), contorno periodico, particulas con radio
-# r_i ~ U[0.23, 0.26] y distancia borde a borde, semilla 49454645, 100 repeticiones tras 20 de calentamiento.
+# Fuente: TP-1-SdS/simulation/outputs, corridas del 2026-09-04 (copiadas en tmp/):
+#   "L=10 fijo"     <- sweep_vary_n/L10_M6_rc1_wrap_N5-250_20260904_142403/timing_summary.csv   (TP1 punto 4.1)
+#   "rho=0.3 fija" <- sweep_fixed_density/rho0.3_M6_rc1_wrap_N30-250_20260904_144055/timing_summary.csv (TP1 punto 4.2)
+# Condiciones del TP1: rc=1, M=6 (optimo del punto 3), contorno periodico, particulas con radio
+# r_i ~ U[0.23, 0.26] y distancia borde a borde, 100 repeticiones tras 20 de calentamiento.
 # mean_ms/stdev_ms = mean_elapsed_ns/std_elapsed_ns de esos CSV convertidos a milisegundos.
 # Las lineas que empiezan con # se ignoran.
 serie,N,L,M,mean_ms,stdev_ms
-L=20 fijo,10,20.0,13,0.061099,0.036084
-L=20 fijo,20,20.0,13,0.068137,0.042526
-L=20 fijo,40,20.0,13,0.123957,0.053706
-L=20 fijo,60,20.0,13,0.163042,0.04743
-L=20 fijo,80,20.0,13,0.200577,0.043597
-L=20 fijo,100,20.0,13,0.272097,0.04988
-L=20 fijo,150,20.0,13,0.353027,0.099672
-L=20 fijo,200,20.0,13,0.435064,0.102727
-L=20 fijo,300,20.0,13,0.539918,0.300219
-L=20 fijo,1000,20.0,13,2.057993,0.556533
-rho=0.25 fija,100,20.0,13,0.283261,0.070589
-rho=0.25 fija,150,24.495,13,0.302133,0.089214
-rho=0.25 fija,200,28.284,13,0.424731,0.125065
-rho=0.25 fija,300,34.641,13,0.513167,0.329242
-rho=0.25 fija,1000,63.246,13,1.391568,0.549845
+L=10 fijo,5,10.0,6,0.031261,0.0122619959404839
+L=10 fijo,10,10.0,6,0.038574,0.0165750245364476
+L=10 fijo,20,10.0,6,0.057904,0.0249231624045269
+L=10 fijo,30,10.0,6,0.070176,0.024019273069514
+L=10 fijo,50,10.0,6,0.089045,0.0184245519935117
+L=10 fijo,75,10.0,6,0.123186,0.019610613597146
+L=10 fijo,100,10.0,6,0.155848,0.024420634096947
+L=10 fijo,150,10.0,6,0.244463,0.0324536675333257
+L=10 fijo,200,10.0,6,0.381793,0.107898323120998
+L=10 fijo,250,10.0,6,0.543677,0.0446751051617354
+rho=0.3 fija,30,10.0,6,0.06602,0.0244730938631045
+rho=0.3 fija,50,12.909944487358057,6,0.087461,0.0209149209461049
+rho=0.3 fija,75,15.811388300841896,6,0.109956,0.00938538860100738
+rho=0.3 fija,100,18.257418583505537,6,0.145192,0.0217808584298093
+rho=0.3 fija,150,22.360679774997898,6,0.216529,0.0415705127986586
+rho=0.3 fija,200,25.819888974716115,6,0.299338,0.0464583136268473
+rho=0.3 fija,250,28.867513459481287,6,0.442677,0.085624018218953
