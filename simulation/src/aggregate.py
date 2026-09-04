@@ -51,13 +51,13 @@ class Onset:
 @dataclass
 class Detector:
     window: int = 50
-    atol: float = 0.01
-    rtol: float = 0.10
-    t_min: int = 0
+    atol: float = 0.005
+    rtol: float = 0.05
+    t_min: int = 250
     sustain: int = 100
-    tail_frac: float = 0.5
+    tail_frac: float = 0.4
     quantile: float = 0.025
-    max_outside: float = 0.10
+    max_outside: float = 0.05
     drift_tol: float = 0.25
     min_points: int = 10
 

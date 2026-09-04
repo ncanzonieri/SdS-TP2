@@ -26,7 +26,7 @@ GENERAL_RHOS = (2.0, 4.0, 8.0)
 # rho = N/L^2 (0.11 / 0.16 / 0.32); `rho_close` puentea ambas escrituras.
 LOW_RHOS = (0.1061, 0.1592, 0.3183)
 CLUSTER_RHOS = LOW_RHOS + GENERAL_RHOS
-CHARACTERISTIC_ETAS = (0.5, 3.5, 6.0)
+CHARACTERISTIC_ETAS = (0, 1.5, 3.0)
 FIG_CHOICES = ("png", "pdf", "both", "none")
 _FIG_FORMATS: frozenset[str] = frozenset({"png"})
 
